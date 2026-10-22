@@ -409,6 +409,7 @@ $env:AGENT_API_KEY = "<AGENT_API_KEY>"
 - `categoryMajor` + `categoryMinor`: `ledger_categories`에 존재하는 조합
 - `paymentMethod`: 아래 중 하나 또는 `null`
   - `계좌이체`, `신용카드`, `체크카드`, `현금`, `자동이체`, `기타`, `컬쳐랜드 문화상품권`
+  - 카드 이름을 넣어도 서버가 카드로 인식해 `신용카드`/`체크카드`로 정규화합니다. 가능하면 `cardName`을 사용하세요.
 - `merchant` 200자, `memo`/`note` 500자 이하
 - `id`: UUID (생략 시 서버 생성)
 - `cardId`/`cardName`: 해당 가구의 카드 ID 또는 카드 이름. 이름은 공백·기호를 무시하고 비교하며, 여러 카드와 겹치면 거부
@@ -434,7 +435,7 @@ Google Sheet의 현재 데이터를 API로 옮길 때는 실제 거래 데이터
 
 ## 11. Muse 카드 연결 규칙
 
-- 사용자가 `MG+S 하나카드`, `꿀카드`처럼 카드 이름을 말하면 `GET /v1/cards`로 목록을 확인하고, 거래의 `cardName`에 카드 이름을 넣습니다. `cardId`에 이름을 넣어도 서버가 변환합니다.
+- 사용자가 `MG+S 하나카드`, `꿀카드`처럼 카드 이름을 말하면 `GET /v1/cards`로 목록을 확인하고, 거래의 `cardName`에 카드 이름을 넣습니다. `cardId`나 `paymentMethod`에 이름을 넣어도 서버가 변환합니다.
 - 카드 이름이 없으면 `cardId`/`cardName`을 비우고 `paymentMethod`만 보냅니다.
 - 현금·계좌이체·자동이체는 카드와 연결하지 않습니다.
 - 같은 이름이 여러 카드와 겹치면 API가 후보 목록과 함께 `400`을 반환하므로, 임의로 하나를 고르지 말고 사용자에게 확인합니다.

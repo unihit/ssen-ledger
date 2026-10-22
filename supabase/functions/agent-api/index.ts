@@ -540,10 +540,12 @@ function validateTransactionInput(raw: Record<string, unknown>): NormalizedTrans
     paymentMethod = null
   } else if (typeof paymentMethod !== 'string') {
     fields.paymentMethod = '문자열이어야 합니다.'
+  } else if (paymentMethod.length > 200) {
+    fields.paymentMethod = '결제수단 또는 카드 이름은 200자 이하여야 합니다.'
   } else if (
     !PAYMENT_METHODS.includes(paymentMethod as (typeof PAYMENT_METHODS)[number])
   ) {
-    fields.paymentMethod = `사용 가능한 결제수단: ${PAYMENT_METHODS.join(', ')}`
+    // 카드 이름을 결제수단 자리에 보낸 경우 create/update에서 카드로 변환합니다.
   }
 
   let cardId = body.cardId
@@ -644,43 +646,69 @@ function normalizeCardText(value: string): string {
     .replace(/카드$/, '')
 }
 
-async function resolveCard(householdId: string, cardRef: string | null) {
+async function findCard(
+  householdId: string,
+  cardRef: string | null,
+  field: 'cardId' | 'paymentMethod' = 'cardId',
+): Promise<CardSummary | null> {
   if (!cardRef) return null
 
   const cards = await listCards(householdId)
   const direct = cards.find((card) => card.id === cardRef)
-  if (direct) return direct.id
+  if (direct) return direct
 
   const needle = normalizeCardText(cardRef)
   if (!needle) {
     throw new ApiError(400, 'VALIDATION_ERROR', '카드 이름을 확인해 주세요.', {
-      cardId: '카드 ID 또는 카드 이름이 필요합니다.',
+      [field]: '카드 ID 또는 카드 이름이 필요합니다.',
     })
   }
 
   const exact = cards.find((card) => normalizeCardText(card.name) === needle)
-  if (exact) return exact.id
+  if (exact) return exact
 
   const candidates = cards.filter((card) => {
     const name = normalizeCardText(card.name)
     return name.includes(needle) || needle.includes(name)
   })
 
-  if (candidates.length === 1) return candidates[0].id
+  if (candidates.length === 1) return candidates[0]
   if (candidates.length > 1) {
     throw new ApiError(
       400,
       'VALIDATION_ERROR',
       '카드 이름이 여러 카드와 일치합니다.',
       {
-        cardId: `후보: ${candidates.map((card) => card.name).join(', ')}`,
+        [field]: `후보: ${candidates.map((card) => card.name).join(', ')}`,
       },
     )
   }
 
   throw new ApiError(400, 'VALIDATION_ERROR', '카드를 찾을 수 없습니다.', {
-    cardId: `이 가구에 '${cardRef}' 카드가 없습니다.`,
+    [field]: `이 가구에 '${cardRef}' 카드가 없습니다.`,
   })
+}
+
+async function resolveCardAndPayment(
+  householdId: string,
+  input: NormalizedTransaction,
+) {
+  const methodIsCardName =
+    !!input.paymentMethod &&
+    !PAYMENT_METHODS.includes(input.paymentMethod as (typeof PAYMENT_METHODS)[number])
+  const cardRef = input.cardId ?? (methodIsCardName ? input.paymentMethod : null)
+  const card = await findCard(
+    householdId,
+    cardRef,
+    input.cardId ? 'cardId' : 'paymentMethod',
+  )
+
+  let paymentMethod = input.paymentMethod
+  if (card && methodIsCardName) {
+    paymentMethod = card.kind === 'check' ? '체크카드' : '신용카드'
+  }
+
+  return { cardId: card?.id ?? null, paymentMethod }
 }
 
 function duplicateKey(row: Record<string, unknown>) {
@@ -815,7 +843,10 @@ async function createTransaction(req: Request, householdId: string) {
   const body = await readBody(req)
   const input = validateTransactionInput(body)
   const category = await resolveCategory(input.categoryMajor, input.categoryMinor)
-  const cardId = await resolveCard(householdId, input.cardId)
+  const { cardId, paymentMethod } = await resolveCardAndPayment(
+    householdId,
+    input,
+  )
 
   const payload = {
     household_id: householdId,
@@ -831,7 +862,7 @@ async function createTransaction(req: Request, householdId: string) {
     category_minor: input.categoryMinor,
     category_group: category.category_group,
     correction: input.correction,
-    payment_method: input.paymentMethod,
+    payment_method: paymentMethod,
     note: input.note,
     status: 'active',
     source: 'muse',
@@ -977,7 +1008,10 @@ async function updateTransaction(
   const merged = { ...rowToRaw(existing), ...definedBody }
   const input = validateTransactionInput(merged)
   const category = await resolveCategory(input.categoryMajor, input.categoryMinor)
-  const cardId = await resolveCard(householdId, input.cardId)
+  const { cardId, paymentMethod } = await resolveCardAndPayment(
+    householdId,
+    input,
+  )
 
   const payload = {
     date: input.date,
@@ -991,7 +1025,7 @@ async function updateTransaction(
     category_minor: input.categoryMinor,
     category_group: category.category_group,
     correction: input.correction,
-    payment_method: input.paymentMethod,
+    payment_method: paymentMethod,
     note: input.note,
     source: 'muse',
     updated_by: 'muse',
