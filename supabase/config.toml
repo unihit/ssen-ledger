@@ -1,0 +1,18 @@
+project_id = "iglonavoqsihzdobfadh"
+
+[auth]
+site_url = "https://unihit.github.io/ssen-ledger/"
+additional_redirect_urls = [
+  "http://localhost:5173",
+  "http://localhost:5173/",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5173/",
+  "http://localhost:4173",
+  "http://localhost:4173/",
+  "https://unihit.github.io/ssen-ledger",
+  "https://unihit.github.io/ssen-ledger/",
+]
+
+[functions.agent-api]
+# Muse는 Supabase JWT 대신 자체 Bearer API 키로 인증합니다.
+verify_jwt = false
