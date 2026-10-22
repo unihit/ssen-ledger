@@ -5,7 +5,8 @@
 //   AGENT_API_KEY          Muse가 Authorization: Bearer 로 보낼 키 (1개)
 //   AGENT_HOUSEHOLD_ID     (선택) 가구 UUID. 없으면 household가 1개일 때 자동 선택
 //   SUPABASE_URL           Supabase Edge Function에서 자동 제공
-//   SUPABASE_SERVICE_ROLE_KEY  Supabase Edge Function에서 자동 제공
+//   SUPABASE_SECRET_KEYS  새 secret key JSON (자동 제공, ['default'] 사용)
+//   SUPABASE_SERVICE_ROLE_KEY  legacy fallback (자동 제공)
 //
 // 배포: supabase functions deploy agent-api --no-verify-jwt
 
@@ -127,25 +128,58 @@ class ApiError extends Error {
 let client: any = null
 let cachedHouseholdId: string | null = null
 
-function db(): any {
-  const url = Deno.env.get('SUPABASE_URL') ?? ''
-  const key =
+function dbKey(): string {
+  const raw = Deno.env.get('SUPABASE_SECRET_KEYS')
+  if (raw) {
+    try {
+      const keys = JSON.parse(raw) as Record<string, unknown>
+      if (typeof keys.default === 'string' && keys.default) {
+        return keys.default
+      }
+    } catch {
+      // fall through to the legacy key
+    }
+  }
+
+  return (
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ??
     Deno.env.get('SERVICE_ROLE_KEY') ??
     ''
+  )
+}
+
+function db(): any {
+  const url = Deno.env.get('SUPABASE_URL') ?? ''
+  const key = dbKey()
 
   if (!url || !key) {
     throw new ApiError(
       500,
       'CONFIG_ERROR',
-      'SUPABASE_URL 또는 SUPABASE_SERVICE_ROLE_KEY가 설정되지 않았습니다.',
+      'SUPABASE_URL 또는 SUPABASE_SECRET_KEYS/SUPABASE_SERVICE_ROLE_KEY가 설정되지 않았습니다.',
     )
   }
 
   if (!client) {
-    client = createClient(url, key, {
+    const options: any = {
       auth: { persistSession: false, autoRefreshToken: false },
-    })
+    }
+
+    // supabase-js also sends the client key as a Bearer token by default.
+    // New sb_* keys are not JWTs and must only be sent in the apikey header.
+    if (key.startsWith('sb_publishable_') || key.startsWith('sb_secret_')) {
+      options.global = {
+        fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+          const headers = new Headers(init?.headers)
+          if (headers.get('authorization') === `Bearer ${key}`) {
+            headers.delete('authorization')
+          }
+          return fetch(input, { ...init, headers })
+        },
+      }
+    }
+
+    client = createClient(url, key, options)
   }
 
   return client

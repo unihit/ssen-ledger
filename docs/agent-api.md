@@ -6,7 +6,7 @@ Muse 같은 클라우드 에이전트가 **단일 Bearer API 키**로 가계부�
   - 이 작업 공간의 프로젝트: `https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api`
 - 인증: `Authorization: Bearer <AGENT_API_KEY>` (키 1개)
 - 데이터 저장소: 기존 Supabase 프로젝트의 `public.transactions` 확장 + `balance_snapshots`, `recurring_expenses`, `ledger_categories`, `ledger_history`
-- `service_role` 키는 Edge Function Secret에만 두고 앱/프런트엔드/Muse에 절대 노출하지 않습니다.
+- 새 secret key(`sb_secret_...`) 또는 legacy `service_role` 키는 Edge Function Secret에만 두고 앱/프런트엔드/Muse에 절대 노출하지 않습니다.
 - 직접 배포 순서는 [`docs/deploy-agent-api.md`](deploy-agent-api.md)를 참고하세요.
 
 ## 1. 적용 순서
@@ -48,7 +48,7 @@ Supabase Dashboard → Project Settings → Edge Functions → Secrets에서 다
 | `AGENT_API_KEY` | 필수 | Muse가 보낼 긴 랜덤 문자열 |
 | `AGENT_HOUSEHOLD_ID` | 선택 | 가구 UUID. 가구가 1개면 생략 가능 |
 
-`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`는 Supabase Edge Function 런타임에서 자동 제공됩니다.
+`SUPABASE_URL`과 `SUPABASE_SECRET_KEYS`는 Supabase Edge Function 런타임에서 자동 제공됩니다. 코드는 `SUPABASE_SECRET_KEYS` JSON의 `default` 키를 사용하고, legacy `SUPABASE_SERVICE_ROLE_KEY`는 fallback입니다.
 
 API 키 생성 예시(PowerShell):
 
@@ -391,7 +391,7 @@ $env:AGENT_API_KEY = "<AGENT_API_KEY>"
 - `AGENT_API_KEY`는 길고 무작위한 값 1개만 사용합니다.
 - 키는 Muse의 서버 측 Secret에 저장하고, 브라우저/공개 저장소에 넣지 않습니다.
 - Edge Function은 `--no-verify-jwt`로 배포하지만, 모든 데이터 엔드포인트는 Bearer 키를 검사합니다.
-- `SUPABASE_SERVICE_ROLE_KEY`는 Edge Function Secret에만 존재합니다.
+- `SUPABASE_SECRET_KEYS`(자동 제공)와 legacy `SUPABASE_SERVICE_ROLE_KEY`는 Edge Function 런타임에만 존재합니다.
 - RLS는 기존 앱 사용자에게 그대로 적용되고, API는 service role로 동작합니다.
 - API 키가 유출되면 Supabase Secret에서 `AGENT_API_KEY`를 교체하고 재배포합니다.
 

@@ -45,7 +45,7 @@ Dashboard → Project Settings → Edge Functions → Secrets에서 추가:
 | `AGENT_API_KEY` | `.env.agent`의 값 |
 | `AGENT_HOUSEHOLD_ID` | 가구가 2개 이상일 때만. 1개면 생략 가능 |
 
-`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`는 자동 제공되므로 넣지 않아도 됩니다.
+`SUPABASE_URL`과 `SUPABASE_SECRET_KEYS`는 Edge Function 런타임에서 자동 제공됩니다. 코드는 `SUPABASE_SECRET_KEYS` JSON의 `default` 키를 사용하고, legacy `SUPABASE_SERVICE_ROLE_KEY`는 fallback으로만 남겨 둡니다.
 
 CLI로 넣으려면 `npx --yes supabase@latest login` 후:
 
@@ -169,6 +169,6 @@ Content-Type: application/json
 
 ## 9. 보안
 
-- `SUPABASE_SERVICE_ROLE_KEY`는 Edge Function Secret에만 둡니다.
+- `SUPABASE_SECRET_KEYS`(자동 제공)와 legacy `SUPABASE_SERVICE_ROLE_KEY`는 Edge Function 런타임에만 존재합니다.
 - `AGENT_API_KEY`를 프런트엔드, GitHub, Muse의 공개 설정에 넣지 않습니다.
 - 키가 유출되면 Supabase Secret에서 교체하고 Muse에도 새 키를 넣습니다.

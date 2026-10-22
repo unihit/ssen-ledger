@@ -233,7 +233,7 @@ Muse 같은 클라우드 에이전트가 가계부를 읽고 쓰기 위한 공�
 3. `npx --yes supabase@latest functions deploy agent-api --no-verify-jwt --project-ref <PROJECT_REF>`
 4. `https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/health` 확인
 
-`service_role` 키는 Edge Function Secret에만 두고 프런트엔드나 Muse에 전달하지 않습니다.
+새 secret key(`sb_secret_...`) 또는 legacy `service_role` 키는 Edge Function Secret에만 두고 프런트엔드나 Muse에 전달하지 않습니다.
 
 ## 스크립트
 
