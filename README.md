@@ -215,6 +215,7 @@ Muse 같은 클라우드 에이전트가 가계부를 읽고 쓰기 위한 공�
 - 위치: `supabase/functions/agent-api/index.ts`
 - 인증: `Authorization: Bearer <AGENT_API_KEY>` **단일 키**
 - 주소: `https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api`
+- 카드 연결: `GET /v1/cards`로 카드 목록을 확인하고, 거래에 `cardName`을 보내면 서버가 카드 ID로 자동 변환
 - 스키마: `supabase/agent-api.sql`
 - 자세한 사용법: [`docs/agent-api.md`](docs/agent-api.md)
 - 직접 배포 체크리스트: [`docs/deploy-agent-api.md`](docs/deploy-agent-api.md)

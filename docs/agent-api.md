@@ -144,10 +144,36 @@ curl.exe https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/health
 | `merchant` | G | 사용처·계좌. `payee` 별칭 허용 |
 | `memo` | H | 내용. `description` 별칭 허용 |
 | `paymentMethod` | I | 결제수단 |
+| `cardId` | — | 해당 가구의 카드 ID. `cardName` 별칭 허용 |
 | `note` | J | 비고 |
 | `status` | — | `active` / `canceled` |
 | `inputStatus` | K | 응답 전용. 현재는 `정상` |
 | `reviewAlerts` | L | `검토: 미래 날짜`, `검토: 중복 후보` 배열 |
+
+`cardName`에 카드 이름을 넣으면 서버가 해당 가구의 카드 ID로 자동 변환합니다. `cardId`에 카드 이름을 넣어도 됩니다.
+
+### 카드 목록
+
+```bash
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/cards" \
+  -H "Authorization: Bearer $AGENT_API_KEY"
+```
+
+```json
+{
+  "data": [
+    {
+      "id": "mg-plus-s-hana",
+      "name": "MG+ S 하나카드",
+      "issuer": "하나카드 · MG새마을금고",
+      "kind": "credit",
+      "active": true
+    }
+  ]
+}
+```
+
+카드 이름은 띄어쓰기·기호를 무시하고 비교하며, 정확히 일치하지 않아도 한 카드로만 식별되면 연결됩니다. 여러 카드와 겹치면 `400 VALIDATION_ERROR`와 후보 이름을 반환합니다.
 
 ### 생성
 
@@ -164,6 +190,7 @@ curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/transa
     "merchant": "쿠팡",
     "memo": "생수 2박스",
     "paymentMethod": "신용카드",
+    "cardName": "MG+S 하나카드",
     "note": "Muse 입력"
   }'
 ```
@@ -360,7 +387,7 @@ curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/meta" \
   -H "Authorization: Bearer $AGENT_API_KEY"
 ```
 
-거래유형, 결제수단, 잔액 B~G 매핑, 45개 분류기준, 사용 가능한 엔드포인트를 반환합니다.
+거래유형, 결제수단, 보유 카드 목록, 잔액 B~G 매핑, 45개 분류기준, 사용 가능한 엔드포인트를 반환합니다.
 
 ## 7-1. 시트 거래 이관
 
@@ -384,7 +411,7 @@ $env:AGENT_API_KEY = "<AGENT_API_KEY>"
   - `계좌이체`, `신용카드`, `체크카드`, `현금`, `자동이체`, `기타`, `컬쳐랜드 문화상품권`
 - `merchant` 200자, `memo`/`note` 500자 이하
 - `id`: UUID (생략 시 서버 생성)
-- `cardId`: 해당 가구의 카드 ID만 허용
+- `cardId`/`cardName`: 해당 가구의 카드 ID 또는 카드 이름. 이름은 공백·기호를 무시하고 비교하며, 여러 카드와 겹치면 거부
 
 ## 9. 보안
 
@@ -404,3 +431,10 @@ $env:AGENT_API_KEY = "<AGENT_API_KEY>"
 앱의 일반 추가/수정/삭제는 해당 거래만 변경합니다. 앱의 **전체 비우기**와 JSON 가져오기는 앱이 표시하는 `생활비` 거래만 교체하며, API로 들어온 수입·투자·대출·계좌이체 거래는 취소하지 않습니다. API 거래가 참조하는 카드도 앱의 카드 교체 시 함부로 삭제되지 않습니다.
 
 Google Sheet의 현재 데이터를 API로 옮길 때는 실제 거래 데이터를 로컬의 비공개 파일로 준비해 사용합니다. 시트의 `분류기준`은 이미 `ledger_categories`에 시드되어 있습니다. 거래 데이터가 담긴 파일은 저장소에 커밋하지 마세요.
+
+## 11. Muse 카드 연결 규칙
+
+- 사용자가 `MG+S 하나카드`, `꿀카드`처럼 카드 이름을 말하면 `GET /v1/cards`로 목록을 확인하고, 거래의 `cardName`에 카드 이름을 넣습니다. `cardId`에 이름을 넣어도 서버가 변환합니다.
+- 카드 이름이 없으면 `cardId`/`cardName`을 비우고 `paymentMethod`만 보냅니다.
+- 현금·계좌이체·자동이체는 카드와 연결하지 않습니다.
+- 같은 이름이 여러 카드와 겹치면 API가 후보 목록과 함께 `400`을 반환하므로, 임의로 하나를 고르지 말고 사용자에게 확인합니다.

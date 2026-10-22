@@ -439,6 +439,15 @@ function normalizeAliases(raw: Record<string, unknown>) {
     out.memo = out.description
   }
 
+  // Muse가 카드 ID 대신 사용자가 말한 카드 이름을 보내도 서버에서 찾습니다.
+  if (out.cardName !== undefined) {
+    out.cardId = out.cardName
+  } else if (out.card_name !== undefined) {
+    out.cardId = out.card_name
+  } else if (out.cardId === undefined && typeof out.card === 'string') {
+    out.cardId = out.card
+  }
+
   return out
 }
 
@@ -542,8 +551,8 @@ function validateTransactionInput(raw: Record<string, unknown>): NormalizedTrans
     cardId = null
   } else if (typeof cardId !== 'string') {
     fields.cardId = '문자열이어야 합니다.'
-  } else if (cardId.length > 100) {
-    fields.cardId = '100자 이하여야 합니다.'
+  } else if (cardId.length > 200) {
+    fields.cardId = '카드 ID 또는 이름은 200자 이하여야 합니다.'
   }
 
   const id = body.id
@@ -600,24 +609,78 @@ async function resolveCategory(categoryMajor: string, categoryMinor: string) {
   return data
 }
 
-async function resolveCard(householdId: string, cardId: string | null) {
-  if (!cardId) return null
+interface CardSummary {
+  id: string
+  name: string
+  issuer: string | null
+  kind: string | null
+  active: boolean
+}
 
+async function listCards(householdId: string): Promise<CardSummary[]> {
   const { data, error } = await db()
     .from('cards')
-    .select('id')
+    .select('id, name, issuer, kind, active')
     .eq('household_id', householdId)
-    .eq('id', cardId)
-    .maybeSingle()
+    .order('name', { ascending: true })
 
   if (error) throw dbError(error)
-  if (!data) {
-    throw new ApiError(400, 'VALIDATION_ERROR', '카드를 찾을 수 없습니다.', {
-      cardId: '이 가구에 없는 카드입니다.',
+
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+    id: String(row.id),
+    name: String(row.name ?? ''),
+    issuer: row.issuer == null ? null : String(row.issuer),
+    kind: row.kind == null ? null : String(row.kind),
+    active: row.active !== false,
+  }))
+}
+
+/** 띄어쓰기·기호·'카드' 접미사를 무시하고 카드 이름을 비교하기 위한 키입니다. */
+function normalizeCardText(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s\-_+.,/()·'"“”‘’]/g, '')
+    .replace(/카드$/, '')
+}
+
+async function resolveCard(householdId: string, cardRef: string | null) {
+  if (!cardRef) return null
+
+  const cards = await listCards(householdId)
+  const direct = cards.find((card) => card.id === cardRef)
+  if (direct) return direct.id
+
+  const needle = normalizeCardText(cardRef)
+  if (!needle) {
+    throw new ApiError(400, 'VALIDATION_ERROR', '카드 이름을 확인해 주세요.', {
+      cardId: '카드 ID 또는 카드 이름이 필요합니다.',
     })
   }
 
-  return cardId
+  const exact = cards.find((card) => normalizeCardText(card.name) === needle)
+  if (exact) return exact.id
+
+  const candidates = cards.filter((card) => {
+    const name = normalizeCardText(card.name)
+    return name.includes(needle) || needle.includes(name)
+  })
+
+  if (candidates.length === 1) return candidates[0].id
+  if (candidates.length > 1) {
+    throw new ApiError(
+      400,
+      'VALIDATION_ERROR',
+      '카드 이름이 여러 카드와 일치합니다.',
+      {
+        cardId: `후보: ${candidates.map((card) => card.name).join(', ')}`,
+      },
+    )
+  }
+
+  throw new ApiError(400, 'VALIDATION_ERROR', '카드를 찾을 수 없습니다.', {
+    cardId: `이 가구에 '${cardRef}' 카드가 없습니다.`,
+  })
 }
 
 function duplicateKey(row: Record<string, unknown>) {
@@ -1463,7 +1526,7 @@ async function fixedExpenses(householdId: string, monthInput: string) {
   }
 }
 
-async function meta() {
+async function meta(householdId: string) {
   const { data, error } = await db()
     .from('ledger_categories')
     .select('category_major, category_minor, record_rule, category_group, sort_order')
@@ -1476,6 +1539,7 @@ async function meta() {
     auth: 'Authorization: Bearer <AGENT_API_KEY>',
     transactionTypes: TRANSACTION_TYPES,
     paymentMethods: PAYMENT_METHODS,
+    cards: await listCards(householdId),
     aggregationGroups: [
       '수입',
       '생활비',
@@ -1495,6 +1559,7 @@ async function meta() {
     endpoints: {
       health: 'GET /v1/health',
       meta: 'GET /v1/meta',
+      cards: 'GET /v1/cards',
       transactions: 'GET/POST /v1/transactions',
       transaction: 'GET/PATCH/DELETE /v1/transactions/:id',
       cancel: 'POST /v1/transactions/:id/cancel',
@@ -1539,7 +1604,11 @@ async function handle(req: Request): Promise<Response> {
   const householdId = await resolveHouseholdId()
 
   if (path === '/v1/meta' && method === 'GET') {
-    return dataResponse(await meta())
+    return dataResponse(await meta(householdId))
+  }
+
+  if (path === '/v1/cards' && method === 'GET') {
+    return dataResponse(await listCards(householdId))
   }
 
   if (path === '/v1/transactions' && method === 'GET') {
