@@ -692,6 +692,10 @@ p {
   transition: color 0.15s ease;
 }
 
+.tx__merchant .badge {
+  flex-shrink: 0;
+}
+
 .tx:hover .tx__merchant {
   color: var(--accent);
 }
@@ -1122,11 +1126,29 @@ select:focus {
 }
 
 .rule-list__cat {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
   overflow: hidden;
   color: var(--text-2);
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.rule-list__label,
+.rule-list__condition {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rule-list__condition {
+  color: var(--text-3);
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 1.2;
 }
 
 .rule-list__rate {

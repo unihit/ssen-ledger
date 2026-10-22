@@ -67,6 +67,14 @@ function ruleForTransaction(
   )
 }
 
+/** 화면에서 거래별 혜택 조건을 안내할 때 사용하는 규칙 찾기. */
+export function benefitRuleForTransaction(
+  card: Card,
+  transaction: Transaction,
+): BenefitRule | null {
+  return ruleForTransaction(card.benefits, transaction)
+}
+
 export function cardSpend(
   transactions: Transaction[],
   cardId: string,

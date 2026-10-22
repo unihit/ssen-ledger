@@ -4,7 +4,7 @@ import { Icon } from '../components/Icon'
 import { Badge, EmptyState, Progress } from '../components/ui'
 import { CATEGORIES, categoryOf } from '../data/categories'
 import { computeCardMonth, recommendCards } from '../lib/benefits'
-import { ratePercent, won } from '../lib/format'
+import { ratePercent, won, wonShort } from '../lib/format'
 import { useApp } from '../store'
 import type { Card, CategoryId } from '../types'
 
@@ -239,10 +239,24 @@ export function CardsPage() {
                 <ul className="rule-list">
                   {card.benefits.map((rule) => {
                     const usage = usageMap.get(rule.id)
+                    const category = categoryOf(rule.categoryId)
+                    const condition = [
+                      ...(rule.paymentMethods ?? [])
+                        .filter((method) => method !== category.label)
+                        .map((method) => `결제수단 ${method}`),
+                      ...(rule.minTransactionAmount
+                        ? [`건당 ${wonShort(rule.minTransactionAmount)} 이상`]
+                        : []),
+                    ].join(' · ')
                     return (
                       <li key={rule.id} title={rule.note || undefined}>
                         <span className="rule-list__cat">
-                          {categoryOf(rule.categoryId).emoji} {categoryOf(rule.categoryId).label}
+                          <span className="rule-list__label">
+                            {category.emoji} {category.label}
+                          </span>
+                          {condition && (
+                            <small className="rule-list__condition">{condition}</small>
+                          )}
                         </span>
                         <span className="rule-list__rate">{ratePercent(rule.rate)}</span>
                         <span className="rule-list__cap">

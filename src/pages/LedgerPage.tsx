@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react'
 import { Icon } from '../components/Icon'
 import { Badge, EmptyState, MonthPicker } from '../components/ui'
 import { CATEGORIES, categoryOf } from '../data/categories'
+import { benefitRuleForTransaction } from '../lib/benefits'
 import { formatDateKo } from '../lib/date'
-import { won } from '../lib/format'
+import { won, wonShort } from '../lib/format'
 import { useApp } from '../store'
 import type { Transaction } from '../types'
 
@@ -169,6 +170,19 @@ export function LedgerPage({
                 <ul className="tx-list panel">
                   {items.map((transaction) => {
                     const category = categoryOf(transaction.categoryId)
+                    const card = transaction.cardId
+                      ? state.cards.find((item) => item.id === transaction.cardId)
+                      : undefined
+                    const rule = card
+                      ? benefitRuleForTransaction(card, transaction)
+                      : null
+                    const minAmount = rule?.minTransactionAmount
+                    const benefitExclusion =
+                      !transaction.excluded &&
+                      minAmount !== undefined &&
+                      transaction.amount < minAmount
+                        ? `혜택 제외 · ${wonShort(minAmount)} 미만`
+                        : null
                     return (
                       <li key={transaction.id}>
                         <button
@@ -186,6 +200,9 @@ export function LedgerPage({
                             <span className="tx__merchant">
                               {transaction.merchant}
                               {transaction.excluded && <Badge tone="neutral">실적 제외</Badge>}
+                              {benefitExclusion && (
+                                <Badge tone="warn">{benefitExclusion}</Badge>
+                              )}
                             </span>
                             <span className="tx__meta">
                               {category.label} · {cardName(transaction.cardId)}
