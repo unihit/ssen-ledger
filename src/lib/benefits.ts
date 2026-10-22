@@ -47,6 +47,26 @@ function isCounted(transaction: Transaction): boolean {
   return !transaction.excluded && transaction.amount > 0
 }
 
+/**
+ * 카테고리 혜택을 우선 적용하고, 카테고리 혜택이 없을 때만 결제수단 혜택을 찾는다.
+ * 같은 결제가 두 혜택에 중복 계산되지 않도록 하기 위함이다.
+ */
+function ruleForTransaction(
+  rules: BenefitRule[],
+  transaction: Transaction,
+): BenefitRule | null {
+  const categoryRule = rules.find(
+    (rule) => rule.categoryId === transaction.categoryId,
+  )
+  if (categoryRule) return categoryRule
+
+  return (
+    rules.find((rule) =>
+      rule.paymentMethods?.includes(transaction.paymentMethod ?? ''),
+    ) ?? null
+  )
+}
+
 export function cardSpend(
   transactions: Transaction[],
   cardId: string,
@@ -108,14 +128,25 @@ export function computeCardMonth(
     ? card.benefits.filter((rule) => prevSpend >= (rule.minSpend ?? card.minSpendForBenefits))
     : []
 
+  const ruleSpend = new Map<string, number>(
+    applicableRules.map((rule) => [rule.id, 0]),
+  )
+  const countedByRule = new Set<Transaction>()
+
+  for (const transaction of monthTransactions) {
+    const rule = ruleForTransaction(applicableRules, transaction)
+    if (!rule) continue
+
+    // 카테고리/결제수단 혜택에 잡힌 결제는 기본 적립에서 제외한다.
+    countedByRule.add(transaction)
+    if (rule.minTransactionAmount && transaction.amount < rule.minTransactionAmount) {
+      continue
+    }
+    ruleSpend.set(rule.id, (ruleSpend.get(rule.id) ?? 0) + transaction.amount)
+  }
+
   const rows: RuleUsage[] = applicableRules.map((rule) => {
-    const categorySpend = monthTransactions.reduce((total, transaction) => {
-      if (transaction.categoryId !== rule.categoryId) return total
-      if (rule.minTransactionAmount && transaction.amount < rule.minTransactionAmount) {
-        return total
-      }
-      return total + transaction.amount
-    }, 0)
+    const categorySpend = ruleSpend.get(rule.id) ?? 0
     const raw = Math.round(categorySpend * rule.rate)
     const applied = Math.min(raw, rule.monthlyCap)
     return {
@@ -127,11 +158,10 @@ export function computeCardMonth(
     }
   })
 
-  const covered = new Set(rows.map((row) => row.rule.categoryId))
   const baseSpend =
     performanceMet && card.baseRate > 0
       ? monthTransactions.reduce((total, transaction) => {
-          if (covered.has(transaction.categoryId)) return total
+          if (countedByRule.has(transaction)) return total
           return total + transaction.amount
         }, 0)
       : 0

@@ -34,6 +34,8 @@ export interface BenefitRule {
   minSpend?: number
   /** 건당 최소 결제 금액(원). 이 금액 미만 결제는 혜택 계산에서 제외 */
   minTransactionAmount?: number
+  /** 카테고리와 별개로 혜택 대상에 포함할 결제수단 (예: 간편결제) */
+  paymentMethods?: string[]
   note?: string
 }
 

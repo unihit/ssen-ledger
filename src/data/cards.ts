@@ -3,7 +3,7 @@ import type { Card, Settings } from '../types'
 /**
  * MG+ S 하나카드 실제 약관 기반 예시.
  * 2025-10-18 신규 신청 중단. 기존 카드 보유자 약관 기준으로 입력했습니다.
- * 간편결제는 결제수단 기준이라 거래를 '간편결제' 카테고리로 분류해야 정확히 계산됩니다.
+ * 간편결제 혜택은 결제수단이 '간편결제'이거나 카테고리가 '간편결제'이면 계산됩니다.
  */
 export const MG_PLUS_S_CARD: Card = {
   id: 'mg-plus-s-hana',
@@ -28,6 +28,7 @@ export const MG_PLUS_S_CARD: Card = {
       rate: 0.1,
       monthlyCap: 60_000,
       minTransactionAmount: 10_000,
+      paymentMethods: ['간편결제'],
       note: '간편결제 10% · 네이버페이·카카오페이·토스페이·SSG페이·11pay·스마일페이 · 건당 1만원 이상',
     },
     {
