@@ -123,9 +123,9 @@ const MY_CARDS: Card[] = [
     colorFrom: '#8b5cf6',
     colorTo: '#4c1d95',
     minSpendForBenefits: 0,
-    monthlyTotalCap: 1_000_000,
-    baseRate: 0.005,
-    baseCap: 1_000_000,
+    monthlyTotalCap: 11_000,
+    baseRate: 0.055,
+    baseCap: 11_000,
     active: true,
     benefits: [
       {
@@ -133,7 +133,7 @@ const MY_CARDS: Card[] = [
         categoryId: 'simplepay',
         rate: 0.055,
         monthlyCap: 11_000,
-        note: 'KB Pay 5.5% (기본 0.5% 포함, 추가 5% 월 1만점 한도) · 연 KB Pay 300만원 이상 12,000점 별도',
+        note: '5.5% · 월 20만원 결제까지(최대 11,000원) · 연 KB Pay 300만원 이상 12,000점 별도',
       },
     ],
   },
