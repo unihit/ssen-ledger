@@ -440,6 +440,19 @@ function normalizeAliases(raw: Record<string, unknown>) {
     out.memo = out.description
   }
 
+  // '카카오T 간편결제', '카카오페이'처럼 결제수단을 풀어 써도 간편결제로 통일합니다.
+  if (typeof out.paymentMethod === 'string') {
+    const compact = out.paymentMethod.replace(/\s+/g, '').toLowerCase()
+    if (
+      compact.includes('간편결제') ||
+      /(카카오페이|네이버페이|토스페이|ssg페이|11pay|스마일페이|삼성페이|애플페이|구글페이)/i.test(
+        compact,
+      )
+    ) {
+      out.paymentMethod = '간편결제'
+    }
+  }
+
   // Muse가 카드 ID 대신 사용자가 말한 카드 이름을 보내도 서버에서 찾습니다.
   if (out.cardName !== undefined) {
     out.cardId = out.cardName
