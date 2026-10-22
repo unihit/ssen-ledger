@@ -287,7 +287,7 @@ export function CardEditModal({ card, onClose }: { card?: Card; onClose: () => v
               type="text"
               value={draft.issuer}
               maxLength={16}
-              placeholder="예: 쎈카드"
+              placeholder="예: KB국민카드"
               onChange={(event) => patch({ issuer: event.target.value })}
             />
           </div>
@@ -547,8 +547,8 @@ export function CardEditModal({ card, onClose }: { card?: Card; onClose: () => v
 
         <p className="form__hint">
           <Icon name="sparkles" size={15} />
-          카드 이름·디자인·실적·혜택을 직접 등록할 수 있어요. 샘플 조건은 실제 약관과 다를 수
-          있습니다.
+          카드 이름·디자인·실적·혜택을 직접 등록할 수 있어요. 표시된 혜택은 실제 약관과
+          다를 수 있으니 카드사 최신 조건을 확인해 주세요.
         </p>
       </div>
     </Modal>

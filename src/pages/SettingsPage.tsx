@@ -16,7 +16,7 @@ export function SettingsPage() {
   const {
     state,
     updateSettings,
-    resetToSample,
+    resetToInitial,
     clearAll,
     exportJSON,
     importJSON,
@@ -95,11 +95,11 @@ export function SettingsPage() {
   const handleReset = () => {
     if (
       window.confirm(
-        '샘플 데이터로 되돌릴까요?\n지금 입력한 결제 내역과 설정이 모두 사라집니다.',
+        '초기 상태로 되돌릴까요?\n지금 입력한 결제 내역과 설정이 모두 사라집니다.',
       )
     ) {
-      resetToSample()
-      setMessage('샘플 데이터로 되돌렸어요.')
+      resetToInitial()
+      setMessage('초기 상태로 되돌렸어요.')
     }
   }
 
@@ -324,13 +324,13 @@ export function SettingsPage() {
           <section className="panel">
             <header className="panel__head">
               <div>
-                <h2>샘플 · 초기화</h2>
-                <p>데모 데이터를 다시 만들거나 비울 수 있어요</p>
+                <h2>초기화</h2>
+                <p>결제 내역을 비우거나 카드·예산을 초기 상태로 되돌릴 수 있어요</p>
               </div>
             </header>
             <div className="settings-actions">
               <button type="button" className="btn btn--ghost" onClick={handleReset}>
-                샘플 데이터로 되돌리기
+                초기 상태로 되돌리기
               </button>
               <button
                 type="button"

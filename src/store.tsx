@@ -30,6 +30,14 @@ import type { AppState, Card, Settings, Transaction } from './types'
 
 const STORAGE_KEY = 'ssen-ledger-state-v2'
 
+/** 예전 샘플 데이터에만 쓰던 카드 ID. 로컬 저장소에 남아 있으면 걷어냅니다. */
+const RETIRED_CARD_IDS = new Set([
+  'ssen-light',
+  'ssen-plus',
+  'ssen-travel',
+  'ssen-check',
+])
+
 export type SyncState = 'local' | 'syncing' | 'synced' | 'error'
 
 function newId(): string {
@@ -40,10 +48,20 @@ function newId(): string {
 }
 
 function normalize(state: AppState): AppState {
+  const cards = Array.isArray(state.cards)
+    ? state.cards.filter((card) => !RETIRED_CARD_IDS.has(card.id))
+    : createInitialState().cards
+  const transactions = Array.isArray(state.transactions)
+    ? state.transactions.filter(
+        (transaction) =>
+          !transaction.cardId || !RETIRED_CARD_IDS.has(transaction.cardId),
+      )
+    : []
+
   return {
     version: 1,
-    cards: Array.isArray(state.cards) ? state.cards : createInitialState().cards,
-    transactions: Array.isArray(state.transactions) ? state.transactions : [],
+    cards,
+    transactions,
     settings: { ...DEFAULT_SETTINGS, ...state.settings },
   }
 }
@@ -106,7 +124,7 @@ interface AppContextValue {
   updateCard: (card: Card) => void
   deleteCard: (id: string) => void
   toggleCard: (id: string) => void
-  resetToSample: () => void
+  resetToInitial: () => void
   clearAll: () => void
   exportJSON: () => string
   importJSON: (raw: string) => { ok: boolean; message: string }
@@ -535,7 +553,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [householdId, push],
   )
 
-  const resetToSample = useCallback(() => {
+  const resetToInitial = useCallback(() => {
     const next = createInitialState()
     settingsVersionRef.current += 1
     settingsDirtyRef.current = false
@@ -615,7 +633,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateCard,
       deleteCard,
       toggleCard,
-      resetToSample,
+      resetToInitial,
       clearAll,
       exportJSON,
       importJSON,
@@ -636,7 +654,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateCard,
       deleteCard,
       toggleCard,
-      resetToSample,
+      resetToInitial,
       clearAll,
       exportJSON,
       importJSON,
