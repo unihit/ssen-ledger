@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Icon } from '../components/Icon'
 import { Badge, EmptyState, MonthPicker } from '../components/ui'
-import { CATEGORIES, categoryOf } from '../data/categories'
+import { CATEGORIES, categoryOf, isSavingsCategory } from '../data/categories'
 import { benefitRuleForTransaction } from '../lib/benefits'
 import { formatDateKo, formatDateShort, todayISO } from '../lib/date'
 import {
@@ -79,8 +79,18 @@ export function LedgerPage({
     return [...map.entries()]
   }, [filtered])
 
-  const total = filtered.reduce((sum, transaction) => sum + transaction.amount, 0)
-  const excludedCount = filtered.filter((transaction) => transaction.excluded).length
+  const spending = filtered.filter(
+    (transaction) => !isSavingsCategory(transaction.categoryId),
+  )
+  const savings = filtered.filter((transaction) =>
+    isSavingsCategory(transaction.categoryId),
+  )
+  const total = spending.reduce((sum, transaction) => sum + transaction.amount, 0)
+  const savingsTotal = savings.reduce(
+    (sum, transaction) => sum + transaction.amount,
+    0,
+  )
+  const excludedCount = spending.filter((transaction) => transaction.excluded).length
 
   const fixedItems = fixedExpensesForMonth(fixedExpenses, month).map(
     (fixedExpense) => ({
@@ -115,7 +125,7 @@ export function LedgerPage({
           <MonthPicker month={month} onChange={setMonth} />
           <button type="button" className="btn btn--primary" onClick={onAdd}>
             <Icon name="plus" size={18} />
-            결제 추가
+            내역 추가
           </button>
         </div>
       </header>
@@ -127,12 +137,18 @@ export function LedgerPage({
         </div>
         <div>
           <span>결제 건수</span>
-          <strong>{filtered.length}건</strong>
+          <strong>{spending.length}건</strong>
         </div>
         <div>
           <span>건당 평균</span>
-          <strong>{won(filtered.length ? total / filtered.length : 0)}</strong>
+          <strong>{won(spending.length ? total / spending.length : 0)}</strong>
         </div>
+        {savingsTotal > 0 && (
+          <div className="ledger-summary__savings">
+            <span>저축</span>
+            <strong>{won(savingsTotal)}</strong>
+          </div>
+        )}
         {excludedCount > 0 && (
           <div>
             <span>실적 제외</span>
@@ -163,8 +179,8 @@ export function LedgerPage({
         {fixedItems.length === 0 ? (
           <EmptyState
             emoji="📌"
-            title="이번 달 고정지출이 없어요"
-            body="설정에서 고정지출을 등록하면 매월 반영 후보를 보여드려요."
+            title="이번 달 고정지출·저축이 없어요"
+            body="설정에서 고정지출·저축을 등록하면 매월 반영 후보를 보여드려요."
           />
         ) : (
           <ul className="fixed-list">
@@ -237,10 +253,10 @@ export function LedgerPage({
           <Icon name="search" size={18} />
           <input
             type="search"
-            placeholder="결제처, 카테고리, 메모 검색"
+            placeholder="결제·저축처, 카테고리, 메모 검색"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            aria-label="결제 내역 검색"
+            aria-label="결제·저축 내역 검색"
           />
         </div>
         <div className="filters__selects">
@@ -278,14 +294,19 @@ export function LedgerPage({
         <div className="panel">
           <EmptyState
             emoji="🔍"
-            title="조건에 맞는 결제가 없어요"
-            body="검색어나 필터를 바꿔보거나 새 결제를 추가해 보세요."
+            title="조건에 맞는 내역이 없어요"
+            body="검색어나 필터를 바꿔보거나 새 결제·저축을 추가해 보세요."
           />
         </div>
       ) : (
         <div className="tx-groups">
           {groups.map(([date, items]) => {
-            const dayTotal = items.reduce((sum, transaction) => sum + transaction.amount, 0)
+            const daySpend = items
+              .filter((transaction) => !isSavingsCategory(transaction.categoryId))
+              .reduce((sum, transaction) => sum + transaction.amount, 0)
+            const daySavings = items
+              .filter((transaction) => isSavingsCategory(transaction.categoryId))
+              .reduce((sum, transaction) => sum + transaction.amount, 0)
             return (
               <section className="tx-group" key={date}>
                 <header className="tx-group__head">
@@ -293,11 +314,19 @@ export function LedgerPage({
                     {formatDateKo(date)}
                     <small>{items.length}건</small>
                   </span>
-                  <strong>{won(dayTotal)}</strong>
+                  <span className="tx-group__sum">
+                    <strong>{won(daySpend)}</strong>
+                    {daySavings > 0 && (
+                      <small className="tx-group__savings">
+                        + 저축 {won(daySavings)}
+                      </small>
+                    )}
+                  </span>
                 </header>
                 <ul className="tx-list panel">
                   {items.map((transaction) => {
                     const category = categoryOf(transaction.categoryId)
+                    const savings = isSavingsCategory(transaction.categoryId)
                     const card = transaction.cardId
                       ? state.cards.find((item) => item.id === transaction.cardId)
                       : undefined
@@ -327,17 +356,28 @@ export function LedgerPage({
                           <span className="tx__main">
                             <span className="tx__merchant">
                               {transaction.merchant}
-                              {transaction.excluded && <Badge tone="neutral">실적 제외</Badge>}
+                              {savings ? (
+                                <Badge tone="success">저축</Badge>
+                              ) : (
+                                transaction.excluded && (
+                                  <Badge tone="neutral">실적 제외</Badge>
+                                )
+                              )}
                               {benefitExclusion && (
                                 <Badge tone="warn">{benefitExclusion}</Badge>
                               )}
                             </span>
                             <span className="tx__meta">
-                              {category.label} · {cardName(transaction.cardId)}
+                              {savings ? '저축 · 계좌' : `${category.label} · ${cardName(transaction.cardId)}`}
                               {transaction.memo ? ` · ${transaction.memo}` : ''}
                             </span>
                           </span>
-                          <span className="tx__amount">{won(transaction.amount)}</span>
+                          <span
+                            className={`tx__amount${savings ? ' tx__amount--savings' : ''}`}
+                          >
+                            {savings ? '+' : ''}
+                            {won(transaction.amount)}
+                          </span>
                         </button>
                       </li>
                     )

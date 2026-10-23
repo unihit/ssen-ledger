@@ -29,6 +29,7 @@ as $$
     when 'medical' then '건강'
     when 'living' then '생활'
     when 'education' then '기타'
+    when 'savings' then '예적금'
     when 'etc' then '기타'
     else '기타'
   end;
@@ -438,8 +439,8 @@ begin
     raise exception '이 가구에 접근할 수 없습니다.';
   end if;
 
-  -- 앱이 관리하는 생활비 거래만 취소합니다.
-  -- API로 들어온 수입·투자·대출·계좌이체 거래는 그대로 보존합니다.
+  -- 앱이 관리하는 생활비와 직접 기록한 저축만 취소합니다.
+  -- API로 들어온 수입·투자·대출·계좌이체 거래와 고정지출 반영분은 그대로 보존합니다.
   update public.transactions
   set
     status = 'canceled',
@@ -448,7 +449,10 @@ begin
     updated_by = 'app'
   where household_id = p_household_id
     and status = 'active'
-    and coalesce(category_major, '생활비') = '생활비';
+    and (
+      coalesce(category_major, '생활비') = '생활비'
+      or (category_id = 'savings' and fixed_expense_id is null)
+    );
 
   -- 카드 삭제 전에 취소 거래의 카드 참조를 해제합니다.
   update public.transactions
@@ -536,14 +540,18 @@ begin
     t.merchant,
     t.amount,
     t.category_id,
-    t.card_id,
+    case when t.category_id = 'savings' then null else t.card_id end,
     t.memo,
-    coalesce(t.excluded, false),
-    '생활비',
+    case when t.category_id = 'savings' then true else coalesce(t.excluded, false) end,
+    case when t.category_id = 'savings' then '투자납입' else '생활비' end,
     public.app_category_to_sheet_minor(t.category_id),
-    '생활비',
+    case when t.category_id = 'savings' then '투자납입' else '생활비' end,
     0,
-    case when t.card_id is null then '현금' else '신용카드' end,
+    case
+      when t.category_id = 'savings' then '계좌이체'
+      when t.card_id is null then '현금'
+      else '신용카드'
+    end,
     null,
     'active',
     'app',
@@ -590,6 +598,47 @@ begin
   where id = p_household_id;
 end;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- 6-1. 저축 카테고리 정규화
+-- ---------------------------------------------------------------------------
+
+update public.recurring_expenses
+set
+  category_id = 'savings',
+  category_minor = '예적금',
+  category_group = '투자납입'
+where category_major = '투자납입'
+  and (
+    category_id is distinct from 'savings'
+    or category_minor is distinct from '예적금'
+    or category_group is distinct from '투자납입'
+  );
+
+update public.transactions
+set
+  category_id = 'savings',
+  category_major = '투자납입',
+  category_minor = '예적금',
+  category_group = '투자납입',
+  excluded = true,
+  card_id = null,
+  payment_method = case
+    when payment_method in ('신용카드', '체크카드', '간편결제') or payment_method is null
+      then '계좌이체'
+    else payment_method
+  end
+where (category_major = '투자납입' or category_id = 'savings')
+  and (
+    category_id is distinct from 'savings'
+    or category_major is distinct from '투자납입'
+    or category_minor is distinct from '예적금'
+    or category_group is distinct from '투자납입'
+    or excluded is distinct from true
+    or card_id is not null
+    or payment_method in ('신용카드', '체크카드', '간편결제')
+    or payment_method is null
+  );
 
 -- ---------------------------------------------------------------------------
 -- 7. 권한

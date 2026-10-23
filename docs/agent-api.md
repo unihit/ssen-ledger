@@ -372,6 +372,8 @@ curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/aggregates/cat
 
 `투자납입`으로 분류된 고정지출(예: IRP·연금)은 생활비 지출이 아니라 **저축**으로 집계됩니다. 앱에서는 `고정 저축`으로 표시하고, 홈 저축 목표의 `현금 저축`과 구분해 보여줍니다.
 
+일반 저축 내역은 `categoryId: "savings"`로 저장합니다. 서버에는 `category_major = "투자납입"`, `category_minor = "예적금"`, `category_group = "투자납입"`, `excluded = true`, `card_id = null`로 정규화되며, 생활비 지출·카드 실적·혜택에는 포함되지 않습니다. 고정지출 템플릿의 카테고리를 `savings`로 지정하면 반영 거래도 같은 규칙을 따릅니다.
+
 ### 6-1. 목록
 
 ```bash

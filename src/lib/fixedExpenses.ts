@@ -33,12 +33,12 @@ const SHEET_TO_APP_CATEGORY: Record<string, CategoryId> = {
   '생활비|구독': 'subscription',
   '생활비|기타': 'etc',
   '생활비|게임': 'culture',
-  '투자납입|예적금': 'etc',
-  '투자납입|IRP·연금': 'etc',
-  '투자납입|ISA': 'etc',
-  '투자납입|국내주식': 'etc',
-  '투자납입|해외주식': 'etc',
-  '투자납입|기타투자': 'etc',
+  '투자납입|예적금': 'savings',
+  '투자납입|IRP·연금': 'savings',
+  '투자납입|ISA': 'savings',
+  '투자납입|국내주식': 'savings',
+  '투자납입|해외주식': 'savings',
+  '투자납입|기타투자': 'savings',
   '투자회수|예적금': 'etc',
   '투자회수|IRP·연금': 'etc',
   '투자회수|ISA': 'etc',
@@ -59,7 +59,10 @@ export function appCategoryForSheet(
   categoryMajor: string,
   categoryMinor: string,
 ): CategoryId {
-  return SHEET_TO_APP_CATEGORY[`${categoryMajor}|${categoryMinor}`] ?? 'etc'
+  const mapped = SHEET_TO_APP_CATEGORY[`${categoryMajor}|${categoryMinor}`]
+  if (mapped) return mapped
+  if (categoryMajor === '투자납입') return 'savings'
+  return 'etc'
 }
 
 export function categoryGroupForMajor(categoryMajor: string): string {
@@ -78,9 +81,10 @@ export function categoryGroupForMajor(categoryMajor: string): string {
 
 /** IRP·연금처럼 투자납입으로 분류된 고정지출인지 */
 export function isSavingsFixedExpense(
-  fixedExpense: Pick<FixedExpense, 'categoryMajor' | 'categoryGroup'>,
+  fixedExpense: Pick<FixedExpense, 'categoryId' | 'categoryMajor' | 'categoryGroup'>,
 ): boolean {
   return (
+    fixedExpense.categoryId === 'savings' ||
     fixedExpense.categoryGroup === '투자납입' ||
     fixedExpense.categoryMajor === '투자납입'
   )

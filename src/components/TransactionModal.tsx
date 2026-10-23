@@ -1,9 +1,10 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { CATEGORIES } from '../data/categories'
+import { CATEGORIES, isSavingsCategory } from '../data/categories'
 import { recommendCards } from '../lib/benefits'
 import { fixedExpenseDueDate } from '../lib/fixedExpenses'
 import { todayISO } from '../lib/date'
 import { won } from '../lib/format'
+import { SAVINGS_SHEET } from '../lib/savings'
 import { useApp } from '../store'
 import type { CategoryId, FixedExpense, Transaction } from '../types'
 import { Icon } from './Icon'
@@ -34,6 +35,9 @@ export function TransactionModal({
     deleteTransaction,
     setMonth,
   } = useApp()
+  const startingCategoryId =
+    initial?.categoryId ?? fixedExpense?.categoryId ?? 'food'
+  const startingSavings = isSavingsCategory(startingCategoryId)
   const [amount, setAmount] = useState(
     initial
       ? String(initial.amount)
@@ -50,28 +54,40 @@ export function TransactionModal({
         ? fixedExpenseDueDate(fixedExpense, month)
         : defaultDateFor(month)),
   )
-  const [categoryId, setCategoryId] = useState<CategoryId>(
-    initial?.categoryId ?? fixedExpense?.categoryId ?? 'food',
-  )
+  const [categoryId, setCategoryId] = useState<CategoryId>(startingCategoryId)
   const [cardId, setCardId] = useState<string | null>(
     initial?.cardId ?? fixedExpense?.cardId ?? null,
   )
   const [memo, setMemo] = useState(initial?.memo ?? fixedExpense?.memo ?? '')
   const [excluded, setExcluded] = useState(
-    initial?.excluded ??
-      (fixedExpense ? fixedExpense.categoryMajor !== '생활비' : false),
+    startingSavings
+      ? true
+      : (initial?.excluded ??
+          (fixedExpense ? fixedExpense.categoryMajor !== '생활비' : false)),
   )
   const [error, setError] = useState('')
 
   const numericAmount = Number(amount.replace(/[^\d]/g, '')) || 0
+  const savingsCategory = isSavingsCategory(categoryId)
+  const categoryLabel =
+    CATEGORIES.find((category) => category.id === categoryId)?.label ?? '기타'
 
   const recommendations = useMemo(
     () =>
-      recommendCards(state.cards, state.transactions, date.slice(0, 7), {
-        categoryId,
-        amount: numericAmount,
-      }),
-    [state.cards, state.transactions, date, categoryId, numericAmount],
+      savingsCategory
+        ? []
+        : recommendCards(state.cards, state.transactions, date.slice(0, 7), {
+            categoryId,
+            amount: numericAmount,
+          }),
+    [
+      state.cards,
+      state.transactions,
+      date,
+      categoryId,
+      numericAmount,
+      savingsCategory,
+    ],
   )
 
   const best = recommendations[0]
@@ -82,28 +98,33 @@ export function TransactionModal({
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
     if (numericAmount <= 0) {
-      setError('결제 금액을 입력해 주세요.')
+      setError(savingsCategory ? '저축 금액을 입력해 주세요.' : '결제 금액을 입력해 주세요.')
       return
     }
+    const effectiveCardId = savingsCategory ? null : cardId
+    const effectiveExcluded = savingsCategory ? true : excluded
+    const effectiveMerchant =
+      merchant.trim() || (savingsCategory ? '저축' : `${categoryLabel} 결제`)
     const payload = {
       date,
-      merchant: merchant.trim() || `${CATEGORIES.find((c) => c.id === categoryId)?.label ?? '기타'} 결제`,
+      merchant: effectiveMerchant,
       amount: numericAmount,
       categoryId,
-      cardId,
+      cardId: effectiveCardId,
       memo: memo.trim(),
-      excluded,
+      excluded: effectiveExcluded,
+      ...(savingsCategory ? SAVINGS_SHEET : {}),
     }
 
     if (fixedExpense) {
       const result = applyFixedExpense(fixedExpense, {
         date,
         amount: numericAmount,
-        merchant: merchant.trim() || fixedExpense.name,
+        merchant: merchant.trim() || (savingsCategory ? '저축' : fixedExpense.name),
         memo: memo.trim(),
         categoryId,
-        cardId,
-        excluded,
+        cardId: effectiveCardId,
+        excluded: effectiveExcluded,
       })
       if (!result.ok) {
         setError(result.message)
@@ -147,7 +168,8 @@ export function TransactionModal({
 
   const handleDelete = () => {
     if (!initial) return
-    if (window.confirm('이 결제 내역을 삭제할까요?')) {
+    const target = isSavingsCategory(initial.categoryId) ? '저축 내역' : '결제 내역'
+    if (window.confirm(`${target}을 삭제할까요?`)) {
       deleteTransaction(initial.id)
       onClose()
     }
@@ -156,16 +178,24 @@ export function TransactionModal({
   return (
     <Modal
       title={
-        fixedExpense
-          ? '고정지출 반영'
-          : initial
-            ? '결제 내역 수정'
-            : '결제 추가'
+        savingsCategory
+          ? fixedExpense
+            ? '고정저축 반영'
+            : initial
+              ? '저축 수정'
+              : '저축 추가'
+          : fixedExpense
+            ? '고정지출 반영'
+            : initial
+              ? '결제 내역 수정'
+              : '결제 추가'
       }
       subtitle={
-        fixedExpense
-          ? '내용을 확인한 뒤 반영하면 실제 거래로 기록돼요.'
-          : '카드 실적과 혜택이 자동으로 다시 계산돼요.'
+        savingsCategory
+          ? '저축은 생활비 지출과 카드 실적에 잡히지 않아요.'
+          : fixedExpense
+            ? '내용을 확인한 뒤 반영하면 실제 거래로 기록돼요.'
+            : '카드 실적과 혜택이 자동으로 다시 계산돼요.'
       }
       onClose={onClose}
       footer={
@@ -183,7 +213,13 @@ export function TransactionModal({
               취소
             </button>
             <button type="submit" form="transaction-form" className="btn btn--primary">
-              {fixedExpense ? '반영 완료' : initial ? '수정 완료' : '저장'}
+              {fixedExpense
+                ? '반영 완료'
+                : initial
+                  ? '수정 완료'
+                  : savingsCategory
+                    ? '저축 저장'
+                    : '저장'}
             </button>
           </div>
         </div>
@@ -191,7 +227,7 @@ export function TransactionModal({
     >
       <form id="transaction-form" className="form" onSubmit={handleSubmit}>
         <div className="field field--amount">
-          <label htmlFor="tx-amount">결제 금액</label>
+          <label htmlFor="tx-amount">{savingsCategory ? '저축 금액' : '결제 금액'}</label>
           <div className="amount-input">
             <input
               id="tx-amount"
@@ -207,7 +243,7 @@ export function TransactionModal({
           </div>
         </div>
 
-        {numericAmount > 0 && best && (
+        {numericAmount > 0 && !savingsCategory && best && (
           <div className={`recommend${cardId === best.card.id ? ' recommend--matched' : ''}`}>
             <span className="recommend__icon">
               <Icon name="sparkles" size={18} />
@@ -234,11 +270,11 @@ export function TransactionModal({
         )}
 
         <div className="field">
-          <label htmlFor="tx-merchant">결제처</label>
+          <label htmlFor="tx-merchant">{savingsCategory ? '저축처' : '결제처'}</label>
           <input
             id="tx-merchant"
             type="text"
-            placeholder="예: 스타벅스 강남점"
+            placeholder={savingsCategory ? '예: 청년도약계좌' : '예: 스타벅스 강남점'}
             value={merchant}
             onChange={(event) => setMerchant(event.target.value)}
           />
@@ -254,7 +290,16 @@ export function TransactionModal({
                 className={`chip chip--category${
                   categoryId === category.id ? ' is-active' : ''
                 }`}
-                onClick={() => setCategoryId(category.id)}
+                disabled={Boolean(fixedExpense)}
+                onClick={() => {
+                  setCategoryId(category.id)
+                  if (isSavingsCategory(category.id)) {
+                    setCardId(null)
+                    setExcluded(true)
+                  } else if (savingsCategory) {
+                    setExcluded(false)
+                  }
+                }}
                 style={
                   categoryId === category.id
                     ? { borderColor: category.color, background: `${category.color}14` }
@@ -266,40 +311,51 @@ export function TransactionModal({
               </button>
             ))}
           </div>
+          {fixedExpense && (
+            <span className="field__hint">
+              고정지출·저축 카테고리는 설정에서 변경할 수 있어요.
+            </span>
+          )}
         </div>
 
         <div className="field">
           <label>결제 카드</label>
-          <div className="chip-row">
-            <button
-              type="button"
-              className={`chip${cardId === null ? ' is-active' : ''}`}
-              onClick={() => setCardId(null)}
-            >
-              <Icon name="wallet" size={16} />
-              현금·계좌
-            </button>
-            {state.cards.map((card) => (
+          {savingsCategory ? (
+            <p className="field__hint">
+              저축은 카드 실적·혜택과 무관하게 계좌이체로 기록돼요.
+            </p>
+          ) : (
+            <div className="chip-row">
               <button
-                key={card.id}
                 type="button"
-                className={`chip${cardId === card.id ? ' is-active' : ''}`}
-                onClick={() => setCardId(card.id)}
-                style={
-                  cardId === card.id
-                    ? { borderColor: card.colorFrom, background: `${card.colorFrom}14` }
-                    : undefined
-                }
+                className={`chip${cardId === null ? ' is-active' : ''}`}
+                onClick={() => setCardId(null)}
               >
-                <span
-                  className="chip__dot"
-                  style={{ background: `linear-gradient(135deg, ${card.colorFrom}, ${card.colorTo})` }}
-                />
-                {card.name}
-                {!card.active && ' (숨김)'}
+                <Icon name="wallet" size={16} />
+                현금·계좌
               </button>
-            ))}
-          </div>
+              {state.cards.map((card) => (
+                <button
+                  key={card.id}
+                  type="button"
+                  className={`chip${cardId === card.id ? ' is-active' : ''}`}
+                  onClick={() => setCardId(card.id)}
+                  style={
+                    cardId === card.id
+                      ? { borderColor: card.colorFrom, background: `${card.colorFrom}14` }
+                      : undefined
+                  }
+                >
+                  <span
+                    className="chip__dot"
+                    style={{ background: `linear-gradient(135deg, ${card.colorFrom}, ${card.colorTo})` }}
+                  />
+                  {card.name}
+                  {!card.active && ' (숨김)'}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="field-row">
@@ -325,18 +381,24 @@ export function TransactionModal({
           </div>
         </div>
 
-        <label className="switch-row">
-          <span>
-            실적·혜택 계산에서 제외
-            <small>보험료, 상품권, 세금처럼 실적에 안 잡히는 결제</small>
-          </span>
-          <input
-            type="checkbox"
-            checked={excluded}
-            onChange={(event) => setExcluded(event.target.checked)}
-          />
-          <span className="switch" aria-hidden="true" />
-        </label>
+        {savingsCategory ? (
+          <p className="form__hint">
+            저축은 카드 실적과 혜택에 잡히지 않아요. 생활비 지출에도 포함되지 않아요.
+          </p>
+        ) : (
+          <label className="switch-row">
+            <span>
+              실적·혜택 계산에서 제외
+              <small>보험료, 상품권, 세금처럼 실적에 안 잡히는 결제</small>
+            </span>
+            <input
+              type="checkbox"
+              checked={excluded}
+              onChange={(event) => setExcluded(event.target.checked)}
+            />
+            <span className="switch" aria-hidden="true" />
+          </label>
+        )}
 
         {error && <p className="form__error">{error}</p>}
       </form>

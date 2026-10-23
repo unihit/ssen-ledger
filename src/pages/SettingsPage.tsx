@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { FixedExpenseEditModal } from '../components/FixedExpenseEditModal'
 import { Icon } from '../components/Icon'
 import { Badge, EmptyState } from '../components/ui'
-import { CATEGORIES, categoryOf } from '../data/categories'
+import { SPENDING_CATEGORIES, categoryOf } from '../data/categories'
 import { downloadText, transactionsToCSV } from '../lib/backup'
 import {
   fixedExpenseDayLabel,
@@ -40,7 +40,7 @@ export function SettingsPage() {
   const [goal, setGoal] = useState(String(state.settings.monthlyGoal))
   const [categoryBudgets, setCategoryBudgets] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {}
-    for (const category of CATEGORIES) {
+    for (const category of SPENDING_CATEGORIES) {
       initial[category.id] = String(state.settings.categoryBudgets[category.id] ?? 0)
     }
     return initial
@@ -54,7 +54,7 @@ export function SettingsPage() {
     setBudget(String(state.settings.monthlyBudget))
     setGoal(String(state.settings.monthlyGoal))
     const next: Record<string, string> = {}
-    for (const category of CATEGORIES) {
+    for (const category of SPENDING_CATEGORIES) {
       next[category.id] = String(state.settings.categoryBudgets[category.id] ?? 0)
     }
     setCategoryBudgets(next)
@@ -68,7 +68,7 @@ export function SettingsPage() {
 
   const handleSave = () => {
     const budgets: Record<string, number> = {}
-    for (const category of CATEGORIES) {
+    for (const category of SPENDING_CATEGORIES) {
       budgets[category.id] = toNumber(categoryBudgets[category.id] ?? '0')
     }
     updateSettings({
@@ -105,7 +105,7 @@ export function SettingsPage() {
   const handleReset = () => {
     if (
       window.confirm(
-        '초기 상태로 되돌릴까요?\n지금 입력한 결제 내역과 설정이 모두 사라집니다.',
+        '초기 상태로 되돌릴까요?\n지금 입력한 결제·저축 내역과 설정이 모두 사라집니다.',
       )
     ) {
       resetToInitial()
@@ -114,9 +114,9 @@ export function SettingsPage() {
   }
 
   const handleClear = () => {
-    if (window.confirm('모든 결제 내역을 삭제할까요?\n카드와 예산 설정은 그대로 남습니다.')) {
+    if (window.confirm('모든 결제·저축 내역을 삭제할까요?\n카드와 예산 설정은 그대로 남습니다.')) {
       clearAll()
-      setMessage('결제 내역을 모두 삭제했어요.')
+      setMessage('결제·저축 내역을 모두 삭제했어요.')
     }
   }
 
@@ -204,7 +204,7 @@ export function SettingsPage() {
             <div className="field">
               <label>카테고리별 예산</label>
               <div className="budget-inputs">
-                {CATEGORIES.map((category) => (
+                {SPENDING_CATEGORIES.map((category) => (
                   <label className="budget-input" key={category.id}>
                     <span>
                       {category.emoji} {category.label}
@@ -225,6 +225,9 @@ export function SettingsPage() {
                   </label>
                 ))}
               </div>
+              <span className="field__hint">
+                저축은 카테고리 예산이 아니라 위의 월 저축 목표로 관리해요.
+              </span>
             </div>
 
             <div className="form__actions">
@@ -298,7 +301,7 @@ export function SettingsPage() {
               <div>
                 <h2>데이터</h2>
                 <p>
-                  결제 {state.transactions.length}건 · 카드 {state.cards.length}장
+                  내역 {state.transactions.length}건 · 카드 {state.cards.length}장
                 </p>
               </div>
             </header>
@@ -339,7 +342,7 @@ export function SettingsPage() {
             <header className="panel__head">
               <div>
                 <h2>초기화</h2>
-                <p>결제 내역을 비우거나 카드·예산을 초기 상태로 되돌릴 수 있어요</p>
+                <p>결제·저축 내역을 비우거나 카드·예산을 초기 상태로 되돌릴 수 있어요</p>
               </div>
             </header>
             <div className="settings-actions">
@@ -351,7 +354,7 @@ export function SettingsPage() {
                 className="btn btn--ghost btn--danger"
                 onClick={handleClear}
               >
-                결제 내역 전체 삭제
+                결제·저축 내역 전체 삭제
               </button>
             </div>
           </section>
@@ -390,15 +393,15 @@ export function SettingsPage() {
             onClick={() => setFixedEditor({})}
           >
             <Icon name="plus" size={18} />
-            고정지출 등록
+            고정지출·저축 등록
           </button>
         </header>
 
         {activeFixedExpenses.length === 0 ? (
           <EmptyState
             emoji="📌"
-            title="등록된 고정지출이 없어요"
-            body="월세·보험료·구독처럼 매월 나가는 항목을 등록해 보세요."
+            title="등록된 고정지출·저축이 없어요"
+            body="월세·보험료·구독·적립식 저축처럼 매월 반복되는 항목을 등록해 보세요."
           />
         ) : (
           <ul className="fixed-settings-list">

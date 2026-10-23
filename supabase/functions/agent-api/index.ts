@@ -77,12 +77,12 @@ const SHEET_TO_APP_CATEGORY: Record<string, string> = {
   '생활비|구독': 'subscription',
   '생활비|기타': 'etc',
   '생활비|게임': 'culture',
-  '투자납입|예적금': 'etc',
-  '투자납입|IRP·연금': 'etc',
-  '투자납입|ISA': 'etc',
-  '투자납입|국내주식': 'etc',
-  '투자납입|해외주식': 'etc',
-  '투자납입|기타투자': 'etc',
+  '투자납입|예적금': 'savings',
+  '투자납입|IRP·연금': 'savings',
+  '투자납입|ISA': 'savings',
+  '투자납입|국내주식': 'savings',
+  '투자납입|해외주식': 'savings',
+  '투자납입|기타투자': 'savings',
   '투자회수|예적금': 'etc',
   '투자회수|IRP·연금': 'etc',
   '투자회수|ISA': 'etc',
@@ -395,7 +395,10 @@ function daysInMonth(year: number, month: number) {
 }
 
 function appCategoryId(categoryMajor: string, categoryMinor: string) {
-  return SHEET_TO_APP_CATEGORY[`${categoryMajor}|${categoryMinor}`] ?? 'etc'
+  return (
+    SHEET_TO_APP_CATEGORY[`${categoryMajor}|${categoryMinor}`] ??
+    (categoryMajor === '투자납입' ? 'savings' : 'etc')
+  )
 }
 
 function effectiveAmount(row: Record<string, unknown>) {
@@ -865,6 +868,13 @@ async function createTransaction(req: Request, householdId: string) {
     householdId,
     input,
   )
+  const appCategory = appCategoryId(input.categoryMajor, input.categoryMinor)
+  const savings = appCategory === 'savings'
+  const normalizedPaymentMethod = savings
+    ? ['신용카드', '체크카드', '간편결제'].includes(paymentMethod ?? '')
+      ? '계좌이체'
+      : paymentMethod ?? '계좌이체'
+    : paymentMethod
 
   const payload = {
     household_id: householdId,
@@ -872,15 +882,15 @@ async function createTransaction(req: Request, householdId: string) {
     date: input.date,
     merchant: input.merchant,
     amount: input.amount,
-    category_id: appCategoryId(input.categoryMajor, input.categoryMinor),
-    card_id: cardId,
+    category_id: appCategory,
+    card_id: savings ? null : cardId,
     memo: input.memo,
-    excluded: input.categoryMajor !== '생활비',
+    excluded: savings || input.categoryMajor !== '생활비',
     category_major: input.categoryMajor,
     category_minor: input.categoryMinor,
     category_group: category.category_group,
     correction: input.correction,
-    payment_method: paymentMethod,
+    payment_method: normalizedPaymentMethod,
     note: input.note,
     status: 'active',
     source: 'muse',
@@ -1030,20 +1040,27 @@ async function updateTransaction(
     householdId,
     input,
   )
+  const appCategory = appCategoryId(input.categoryMajor, input.categoryMinor)
+  const savings = appCategory === 'savings'
+  const normalizedPaymentMethod = savings
+    ? ['신용카드', '체크카드', '간편결제'].includes(paymentMethod ?? '')
+      ? '계좌이체'
+      : paymentMethod ?? '계좌이체'
+    : paymentMethod
 
   const payload = {
     date: input.date,
     merchant: input.merchant,
     amount: input.amount,
-    category_id: appCategoryId(input.categoryMajor, input.categoryMinor),
-    card_id: cardId,
+    category_id: appCategory,
+    card_id: savings ? null : cardId,
     memo: input.memo,
-    excluded: input.categoryMajor !== '생활비',
+    excluded: savings || input.categoryMajor !== '생활비',
     category_major: input.categoryMajor,
     category_minor: input.categoryMinor,
     category_group: category.category_group,
     correction: input.correction,
-    payment_method: paymentMethod,
+    payment_method: normalizedPaymentMethod,
     note: input.note,
     source: 'muse',
     updated_by: 'muse',
@@ -1640,6 +1657,13 @@ async function buildFixedExpensePayload(
     householdId,
     input,
   )
+  const savings =
+    input.categoryMajor === '투자납입' || input.categoryId === 'savings'
+  const normalizedPaymentMethod = savings
+    ? ['신용카드', '체크카드', '간편결제'].includes(paymentMethod ?? '')
+      ? '자동이체'
+      : paymentMethod ?? '자동이체'
+    : paymentMethod
 
   return {
     household_id: householdId,
@@ -1647,16 +1671,19 @@ async function buildFixedExpensePayload(
     start_month: input.startMonth ? `${input.startMonth}-01` : null,
     end_month: input.endMonth ? `${input.endMonth}-01` : null,
     day_of_month: input.dayOfMonth,
-    category_major: input.categoryMajor,
-    category_minor: input.categoryMinor,
-    category_group: category.category_group,
-    category_id: input.categoryId || appCategoryId(input.categoryMajor, input.categoryMinor),
+    category_major: savings ? '투자납입' : input.categoryMajor,
+    category_minor: savings ? '예적금' : input.categoryMinor,
+    category_group: savings ? '투자납입' : category.category_group,
+    category_id: savings
+      ? 'savings'
+      : input.categoryId ||
+        appCategoryId(input.categoryMajor, input.categoryMinor),
     amount: input.amount,
     merchant: input.name,
     memo: input.memo || null,
-    payment_method: paymentMethod,
+    payment_method: normalizedPaymentMethod,
     note: input.note || null,
-    card_id: cardId,
+    card_id: savings ? null : cardId,
     updated_by: 'muse',
   }
 }
@@ -2005,17 +2032,25 @@ async function applyFixedExpense(
       input.categoryMinor,
     )
     const card = await resolveCardAndPayment(householdId, input)
+    const appCategory = appCategoryId(input.categoryMajor, input.categoryMinor)
+    const savings = appCategory === 'savings'
+    const normalizedPaymentMethod = savings
+      ? ['신용카드', '체크카드', '간편결제'].includes(card.paymentMethod ?? '')
+        ? '계좌이체'
+        : card.paymentMethod ?? '계좌이체'
+      : card.paymentMethod
     const { data, error } = await db()
       .from('transactions')
       .update({
         date: input.date,
         merchant: input.merchant,
         amount: input.amount,
-        category_id: appCategoryId(input.categoryMajor, input.categoryMinor),
-        card_id: card.cardId,
+        category_id: appCategory,
+        card_id: savings ? null : card.cardId,
         memo: input.memo,
         note: input.note,
-        payment_method: card.paymentMethod,
+        excluded: savings || input.categoryMajor !== '생활비',
+        payment_method: normalizedPaymentMethod,
         category_group: category.category_group,
         source: 'muse',
         updated_by: 'muse',
@@ -2058,6 +2093,13 @@ async function applyFixedExpense(
     input.categoryMinor,
   )
   const card = await resolveCardAndPayment(householdId, input)
+  const appCategory = appCategoryId(input.categoryMajor, input.categoryMinor)
+  const savings = appCategory === 'savings'
+  const normalizedPaymentMethod = savings
+    ? ['신용카드', '체크카드', '간편결제'].includes(card.paymentMethod ?? '')
+      ? '계좌이체'
+      : card.paymentMethod ?? '계좌이체'
+    : card.paymentMethod
 
   const { data, error } = await db()
     .from('transactions')
@@ -2067,17 +2109,17 @@ async function applyFixedExpense(
       date: input.date,
       merchant: input.merchant,
       amount: input.amount,
-      category_id:
-        existingFixed.category_id ??
-        appCategoryId(input.categoryMajor, input.categoryMinor),
-      card_id: card.cardId,
+      category_id: savings
+        ? 'savings'
+        : existingFixed.category_id ?? appCategoryId(input.categoryMajor, input.categoryMinor),
+      card_id: savings ? null : card.cardId,
       memo: input.memo,
-      excluded: input.categoryMajor !== '생활비',
+      excluded: savings || input.categoryMajor !== '생활비',
       category_major: input.categoryMajor,
       category_minor: input.categoryMinor,
       category_group: category.category_group,
       correction: 0,
-      payment_method: card.paymentMethod,
+      payment_method: normalizedPaymentMethod,
       note: input.note,
       status: 'active',
       fixed_expense_id: id,

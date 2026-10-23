@@ -1,4 +1,8 @@
-import { CATEGORIES, categoryOf } from '../data/categories'
+import {
+  SPENDING_CATEGORIES,
+  categoryOf,
+  isSavingsCategory,
+} from '../data/categories'
 import type { AppState, Category, CategoryId, Transaction } from '../types'
 import { shiftMonth } from './date'
 import { ratio } from './format'
@@ -32,10 +36,9 @@ export function monthTransactions(
 }
 
 export function totalSpend(transactions: Transaction[], month: string): number {
-  return monthTransactions(transactions, month).reduce(
-    (total, transaction) => total + transaction.amount,
-    0,
-  )
+  return monthTransactions(transactions, month)
+    .filter((transaction) => !isSavingsCategory(transaction.categoryId))
+    .reduce((total, transaction) => total + transaction.amount, 0)
 }
 
 export function categorySpend(
@@ -44,6 +47,7 @@ export function categorySpend(
 ): Map<CategoryId, { amount: number; count: number }> {
   const result = new Map<CategoryId, { amount: number; count: number }>()
   for (const transaction of monthTransactions(transactions, month)) {
+    if (isSavingsCategory(transaction.categoryId)) continue
     const current = result.get(transaction.categoryId) ?? { amount: 0, count: 0 }
     result.set(transaction.categoryId, {
       amount: current.amount + transaction.amount,
@@ -83,7 +87,7 @@ export function budgetSummary(state: AppState, month: string): BudgetSummary {
 
 export function categoryBudgetRows(state: AppState, month: string) {
   const grouped = categorySpend(state.transactions, month)
-  return CATEGORIES.map((category) => {
+  return SPENDING_CATEGORIES.map((category) => {
     const budget = state.settings.categoryBudgets[category.id] ?? 0
     const spend = grouped.get(category.id)?.amount ?? 0
     return {

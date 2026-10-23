@@ -12,6 +12,8 @@ import { Icon } from './components/Icon'
 import { DEFAULT_SETTINGS } from './data/cards'
 import { createInitialState } from './data/sample'
 import { currentMonth } from './lib/date'
+import { isSavingsCategory } from './data/categories'
+import { SAVINGS_SHEET, withSavingsDefaults } from './lib/savings'
 import { useAuth } from './lib/auth'
 import {
   clearCloudTransactions,
@@ -448,7 +450,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const addTransaction = useCallback(
     (input: Omit<Transaction, 'id'>) => {
-      const transaction = { ...input, id: newId() }
+      const transaction = withSavingsDefaults({ ...input, id: newId() })
 
       setState((current) => ({
         ...current,
@@ -475,27 +477,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateTransaction = useCallback(
     (transaction: Transaction) => {
+      const nextTransaction = withSavingsDefaults(transaction)
       const previous = stateRef.current.transactions.find(
-        (item) => item.id === transaction.id,
+        (item) => item.id === nextTransaction.id,
       )
 
       setState((current) => ({
         ...current,
         transactions: current.transactions.map((item) =>
-          item.id === transaction.id ? transaction : item,
+          item.id === nextTransaction.id ? nextTransaction : item,
         ),
       }))
 
-      if (transaction.fixedExpenseId) {
+      if (nextTransaction.fixedExpenseId) {
         setFixedExpenseApplications((current) =>
           current.map((application) =>
-            application.transactionId === transaction.id
+            application.transactionId === nextTransaction.id
               ? {
                   ...application,
-                  date: transaction.date,
-                  amount: transaction.amount,
+                  date: nextTransaction.date,
+                  amount: nextTransaction.amount,
                   month:
-                    transaction.fixedExpenseMonth ?? transaction.date.slice(0, 7),
+                    nextTransaction.fixedExpenseMonth ??
+                    nextTransaction.date.slice(0, 7),
                 }
               : application,
           ),
@@ -506,7 +510,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!hid) return
 
       push(
-        () => saveTransactionRemote(hid, transaction),
+        () => saveTransactionRemote(hid, nextTransaction),
         () => {
           if (!previous) return
           setState((current) => ({
@@ -776,33 +780,56 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return { ok: false, message: '반영할 금액을 확인해 주세요.' }
       }
 
-      const transaction: Transaction = {
+      const fixedSavings =
+        isSavingsCategory(fixedExpense.categoryId) ||
+        fixedExpense.categoryMajor === '투자납입' ||
+        fixedExpense.categoryGroup === '투자납입'
+      const savings = fixedSavings
+      const categoryMajor = savings
+        ? SAVINGS_SHEET.categoryMajor
+        : fixedExpense.categoryMajor
+      const categoryMinor = savings
+        ? SAVINGS_SHEET.categoryMinor
+        : fixedExpense.categoryMinor
+      const categoryGroup = savings
+        ? SAVINGS_SHEET.categoryGroup
+        : fixedExpense.categoryGroup
+      const categoryId = savings ? 'savings' : fixedExpense.categoryId
+
+      const transaction = withSavingsDefaults({
         id: newId(),
         date: input.date,
         merchant: input.merchant?.trim() || fixedExpense.name,
         amount,
-        categoryId: input.categoryId ?? fixedExpense.categoryId,
-        cardId:
-          input.cardId === undefined ? fixedExpense.cardId : input.cardId,
+        categoryId,
+        cardId: savings
+          ? null
+          : input.cardId === undefined
+            ? fixedExpense.cardId
+            : input.cardId,
         memo: input.memo ?? fixedExpense.memo ?? '',
-        excluded:
-          input.excluded ?? (fixedExpense.categoryMajor !== '생활비'),
-        categoryMajor: fixedExpense.categoryMajor,
-        categoryMinor: fixedExpense.categoryMinor,
-        categoryGroup: fixedExpense.categoryGroup,
+        excluded: savings
+          ? true
+          : input.excluded ?? (categoryMajor !== '생활비'),
+        categoryMajor,
+        categoryMinor,
+        categoryGroup,
         correction: 0,
         effectiveAmount: amount,
-        paymentMethod:
-          input.paymentMethod ??
-          fixedExpense.paymentMethod ??
-          (fixedExpense.cardId ? '신용카드' : '현금'),
+        paymentMethod: savings
+          ? input.paymentMethod ??
+            fixedExpense.paymentMethod ??
+            '자동이체'
+          : input.paymentMethod ??
+            fixedExpense.paymentMethod ??
+            (fixedExpense.cardId ? '신용카드' : '현금'),
         note: fixedExpense.note,
         status: 'active',
         fixedExpenseId: fixedExpense.id,
         fixedExpenseMonth: month,
-      }
+      })
 
-      const visible = fixedExpense.categoryMajor === '생활비'
+      const visible = !savings && categoryMajor === '생활비'
       if (visible) {
         setState((current) => ({
           ...current,

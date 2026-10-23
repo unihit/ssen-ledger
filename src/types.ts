@@ -14,6 +14,7 @@ export type CategoryId =
   | 'medical'
   | 'living'
   | 'education'
+  | 'savings'
   | 'etc'
 
 export interface Category {

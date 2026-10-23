@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { CATEGORIES } from '../data/categories'
+import { CATEGORIES, isSavingsCategory } from '../data/categories'
 import { categoryGroupForMajor } from '../lib/fixedExpenses'
 import { currentMonth } from '../lib/date'
+import { SAVINGS_SHEET } from '../lib/savings'
 import { useApp } from '../store'
 import type { CategoryId, FixedExpense } from '../types'
 import { Icon } from './Icon'
@@ -81,6 +82,7 @@ export function FixedExpenseEditModal({
     String(fixedExpense?.amount ?? ''),
   )
   const [error, setError] = useState('')
+  const savingsDraft = isSavingsCategory(draft.categoryId)
 
   const patch = (changes: Partial<FixedExpense>) =>
     setDraft((current) => ({ ...current, ...changes }))
@@ -101,7 +103,7 @@ export function FixedExpenseEditModal({
     const name = draft.name.trim()
     const amount = toNumber(amountInput)
     if (!name) {
-      setError('고정지출 이름을 입력해 주세요.')
+      setError('고정지출·저축 이름을 입력해 주세요.')
       return
     }
     if (amount <= 0) {
@@ -113,15 +115,28 @@ export function FixedExpenseEditModal({
       return
     }
 
+    const savings = isSavingsCategory(draft.categoryId)
+    const paymentMethod = savings
+      ? ['신용카드', '체크카드', '간편결제'].includes(draft.paymentMethod ?? '')
+        ? '자동이체'
+        : draft.paymentMethod ?? '자동이체'
+      : draft.paymentMethod
+
     const next: FixedExpense = {
       ...draft,
       name,
       amount,
-      categoryMajor: draft.categoryMajor.trim() || '생활비',
-      categoryMinor: draft.categoryMinor.trim(),
-      categoryGroup: categoryGroupForMajor(
-        draft.categoryMajor.trim() || '생활비',
-      ),
+      categoryMajor: savings
+        ? SAVINGS_SHEET.categoryMajor
+        : draft.categoryMajor.trim() || '생활비',
+      categoryMinor: savings
+        ? SAVINGS_SHEET.categoryMinor
+        : draft.categoryMinor.trim(),
+      categoryGroup: savings
+        ? SAVINGS_SHEET.categoryGroup
+        : categoryGroupForMajor(draft.categoryMajor.trim() || '생활비'),
+      cardId: savings ? null : draft.cardId,
+      paymentMethod,
       dayOfMonth: Math.min(31, Math.max(1, Math.round(draft.dayOfMonth))),
       startMonth: draft.startMonth || undefined,
       endMonth: draft.endMonth || undefined,
@@ -142,7 +157,7 @@ export function FixedExpenseEditModal({
     if (!fixedExpense) return
     if (
       window.confirm(
-        `${fixedExpense.name} 고정지출을 목록에서 숨길까요?\n이미 반영된 거래는 그대로 남습니다.`,
+        `${fixedExpense.name} 고정지출·저축을 목록에서 숨길까요?\n이미 반영된 거래는 그대로 남습니다.`,
       )
     ) {
       deleteFixedExpense(fixedExpense.id)
@@ -152,8 +167,8 @@ export function FixedExpenseEditModal({
 
   return (
     <Modal
-      title={fixedExpense ? '고정지출 수정' : '고정지출 등록'}
-      subtitle="템플릿은 실제 거래가 아니며, 확인 후 반영해야 지출에 잡혀요."
+      title={fixedExpense ? '고정지출·저축 수정' : '고정지출·저축 등록'}
+      subtitle="템플릿은 실제 거래가 아니며, 확인 후 반영해야 지출·저축에 잡혀요."
       onClose={onClose}
       footer={
         <div>
@@ -189,11 +204,11 @@ export function FixedExpenseEditModal({
     >
       <div className="form">
         <div className="field">
-          <label htmlFor="fixed-name">고정지출 이름</label>
+          <label htmlFor="fixed-name">고정지출·저축 이름</label>
           <input
             id="fixed-name"
             type="text"
-            placeholder="예: 월세, 보험료, 로켓와우"
+            placeholder="예: 월세, 보험료, IRP 납입"
             value={draft.name}
             maxLength={60}
             onChange={(event) => {
@@ -241,9 +256,34 @@ export function FixedExpenseEditModal({
             <select
               id="fixed-category"
               value={draft.categoryId}
-              onChange={(event) =>
-                patch({ categoryId: event.target.value as CategoryId })
-              }
+              onChange={(event) => {
+                const categoryId = event.target.value as CategoryId
+                if (isSavingsCategory(categoryId)) {
+                  patch({
+                    categoryId,
+                    categoryMajor: SAVINGS_SHEET.categoryMajor,
+                    categoryMinor: SAVINGS_SHEET.categoryMinor,
+                    categoryGroup: SAVINGS_SHEET.categoryGroup,
+                    cardId: null,
+                    paymentMethod: ['신용카드', '체크카드', '간편결제'].includes(
+                      draft.paymentMethod ?? '',
+                    )
+                      ? '자동이체'
+                      : draft.paymentMethod,
+                  })
+                  return
+                }
+                if (savingsDraft) {
+                  patch({
+                    categoryId,
+                    categoryMajor: '생활비',
+                    categoryMinor: '기타',
+                    categoryGroup: '생활비',
+                  })
+                  return
+                }
+                patch({ categoryId })
+              }}
             >
               {CATEGORIES.map((category) => (
                 <option key={category.id} value={category.id}>
@@ -257,12 +297,37 @@ export function FixedExpenseEditModal({
             <select
               id="fixed-major"
               value={draft.categoryMajor}
-              onChange={(event) =>
+              onChange={(event) => {
+                const categoryMajor = event.target.value
+                if (categoryMajor === SAVINGS_SHEET.categoryMajor) {
+                  patch({
+                    categoryMajor,
+                    categoryGroup: SAVINGS_SHEET.categoryGroup,
+                    categoryId: 'savings',
+                    categoryMinor: SAVINGS_SHEET.categoryMinor,
+                    cardId: null,
+                    paymentMethod: ['신용카드', '체크카드', '간편결제'].includes(
+                      draft.paymentMethod ?? '',
+                    )
+                      ? '자동이체'
+                      : draft.paymentMethod,
+                  })
+                  return
+                }
+                if (savingsDraft) {
+                  patch({
+                    categoryMajor,
+                    categoryGroup: categoryGroupForMajor(categoryMajor),
+                    categoryId: 'etc',
+                    categoryMinor: '기타',
+                  })
+                  return
+                }
                 patch({
-                  categoryMajor: event.target.value,
-                  categoryGroup: categoryGroupForMajor(event.target.value),
+                  categoryMajor,
+                  categoryGroup: categoryGroupForMajor(categoryMajor),
                 })
-              }
+              }}
             >
               {MAJOR_OPTIONS.map((major) => (
                 <option key={major} value={major}>
@@ -289,6 +354,7 @@ export function FixedExpenseEditModal({
             <select
               id="fixed-card"
               value={draft.cardId ?? ''}
+              disabled={savingsDraft}
               onChange={(event) => handleCardChange(event.target.value)}
             >
               <option value="">현금·계좌</option>
@@ -298,6 +364,11 @@ export function FixedExpenseEditModal({
                 </option>
               ))}
             </select>
+            {savingsDraft && (
+              <span className="field__hint">
+                저축은 카드 실적·혜택과 무관하게 계좌이체로 기록돼요.
+              </span>
+            )}
           </div>
         </div>
 

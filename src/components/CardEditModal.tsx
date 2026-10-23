@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CATEGORIES, categoryOf } from '../data/categories'
+import { SPENDING_CATEGORIES, categoryOf } from '../data/categories'
 import { useApp } from '../store'
 import type { Card, CategoryId, PerformanceTier } from '../types'
 import { Icon } from './Icon'
@@ -56,11 +56,13 @@ function toNumber(value: string): number {
 export function CardEditModal({ card, onClose }: { card?: Card; onClose: () => void }) {
   const { state, addCard, updateCard, deleteCard } = useApp()
   const [draft, setDraft] = useState<Card>(() => (card ? cloneCard(card) : createDraft()))
-  const [newCategory, setNewCategory] = useState<CategoryId>(CATEGORIES[0].id)
+  const [newCategory, setNewCategory] = useState<CategoryId>(
+    SPENDING_CATEGORIES[0].id,
+  )
   const [error, setError] = useState('')
 
   const isEdit = Boolean(card)
-  const availableCategories = CATEGORIES.filter(
+  const availableCategories = SPENDING_CATEGORIES.filter(
     (category) => !draft.benefits.some((rule) => rule.categoryId === category.id),
   )
   const selectedNewCategory =

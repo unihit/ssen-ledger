@@ -12,7 +12,7 @@ import {
   monthTransactions,
 } from '../lib/analytics'
 import { computeCardMonth } from '../lib/benefits'
-import { categoryOf } from '../data/categories'
+import { categoryOf, isSavingsCategory } from '../data/categories'
 import { daysElapsed, daysInMonth, formatDateKo } from '../lib/date'
 import {
   fixedExpenseDayLabel,
@@ -86,6 +86,13 @@ export function HomePage({
   const goal = state.settings.monthlyGoal
   const dailyAverage = summary.spend / Math.max(1, daysElapsed(month))
 
+  const manualSavings = monthTransactions(state.transactions, month)
+    .filter(
+      (transaction) =>
+        isSavingsCategory(transaction.categoryId) && !transaction.fixedExpenseId,
+    )
+    .reduce((sum, transaction) => sum + transaction.amount, 0)
+
   const recent = [...monthTransactions(state.transactions, month)]
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
     .slice(0, 5)
@@ -119,7 +126,8 @@ export function HomePage({
   const fixedSavingsPlanned = fixedItems
     .filter((item) => isSavingsFixedExpense(item.fixedExpense))
     .reduce((sum, item) => sum + item.fixedExpense.amount, 0)
-  const cashSavings = savings - fixedSavingsApplied
+  const totalSavingsApplied = fixedSavingsApplied + manualSavings
+  const cashSavings = savings - totalSavingsApplied
   const fixedUpcoming = fixedItems
     .filter((item) => item.status !== 'recorded')
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
@@ -136,7 +144,7 @@ export function HomePage({
           <MonthPicker month={month} onChange={setMonth} />
           <button type="button" className="btn btn--primary" onClick={onAdd}>
             <Icon name="plus" size={18} />
-            결제 추가
+            내역 추가
           </button>
         </div>
       </header>
@@ -213,7 +221,7 @@ export function HomePage({
           <header className="panel__head">
             <div>
               <h2>저축 목표</h2>
-              <p>현금 저축 + 고정 저축 기준</p>
+              <p>현금 저축 + 고정·기록 저축 기준</p>
             </div>
             <Badge tone={savings >= goal ? 'success' : 'neutral'}>
               {savings >= goal ? '목표 달성' : `목표 ${wonShort(goal)}`}
@@ -234,6 +242,12 @@ export function HomePage({
               <span>고정 저축 (IRP 등)</span>
               <strong>{won(fixedSavingsApplied)}</strong>
             </div>
+            {manualSavings > 0 && (
+              <div className="goal__row goal__row--sub">
+                <span>저축 기록</span>
+                <strong>{won(manualSavings)}</strong>
+              </div>
+            )}
             <Progress
               value={Math.max(0, savings)}
               max={Math.max(1, goal)}
@@ -241,8 +255,8 @@ export function HomePage({
             />
             <p className="goal__hint">
               수입 {won(state.settings.monthlyIncome)} · 지출 {won(summary.spend)}
-              {fixedSavingsPlanned > 0
-                ? ` · 고정 저축 반영 ${won(fixedSavingsApplied)}`
+              {fixedSavingsPlanned > 0 || manualSavings > 0
+                ? ` · 저축 반영 ${won(totalSavingsApplied)}`
                 : ''}
               {savings < goal
                 ? ` · 목표까지 ${won(Math.max(0, goal - savings))} 남았어요`
@@ -309,7 +323,7 @@ export function HomePage({
           </div>
         </header>
         {fixedItems.length === 0 ? (
-          <p className="panel__empty">설정에서 고정지출을 등록해 보세요.</p>
+          <p className="panel__empty">설정에서 고정지출·저축을 등록해 보세요.</p>
         ) : (
           <div className="fixed-home__body">
             <ul className="fixed-home__list">
@@ -399,7 +413,7 @@ export function HomePage({
       <section className="panel">
         <header className="panel__head">
           <div>
-            <h2>최근 결제</h2>
+            <h2>최근 결제·저축</h2>
             <p>{Math.round(daysElapsed(month))}일 / {daysInMonth(month)}일 기준</p>
           </div>
           <button
@@ -417,13 +431,14 @@ export function HomePage({
         {recent.length === 0 ? (
           <EmptyState
             emoji="🧾"
-            title="아직 결제 내역이 없어요"
-            body="첫 결제를 추가하면 카드 혜택을 계산해드릴게요."
+            title="아직 결제·저축 내역이 없어요"
+            body="첫 결제나 저축을 추가하면 카드 혜택과 저축 목표를 계산해드릴게요."
           />
         ) : (
           <ul className="tx-list">
             {recent.map((transaction) => {
               const category = categoryOf(transaction.categoryId)
+              const savings = isSavingsCategory(transaction.categoryId)
               return (
                 <li key={transaction.id}>
                   <button className="tx" type="button" onClick={() => onEdit(transaction)}>
@@ -434,13 +449,21 @@ export function HomePage({
                       {category.emoji}
                     </span>
                     <span className="tx__main">
-                      <span className="tx__merchant">{transaction.merchant}</span>
+                      <span className="tx__merchant">
+                        {transaction.merchant}
+                        {savings && <Badge tone="success">저축</Badge>}
+                      </span>
                       <span className="tx__meta">
-                        {category.label} · {cardName(transaction.cardId)} ·{' '}
+                        {savings ? '저축 · 계좌' : `${category.label} · ${cardName(transaction.cardId)}`} ·{' '}
                         {formatDateKo(transaction.date)}
                       </span>
                     </span>
-                    <span className="tx__amount">{won(transaction.amount)}</span>
+                    <span
+                      className={`tx__amount${savings ? ' tx__amount--savings' : ''}`}
+                    >
+                      {savings ? '+' : ''}
+                      {won(transaction.amount)}
+                    </span>
                   </button>
                 </li>
               )

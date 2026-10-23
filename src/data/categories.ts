@@ -16,8 +16,20 @@ export const CATEGORIES: Category[] = [
   { id: 'medical', label: '의료·건강', emoji: '💊', color: '#f06a8a' },
   { id: 'living', label: '생활·생필품', emoji: '🧺', color: '#f2a93b' },
   { id: 'education', label: '교육', emoji: '📚', color: '#6b7cff' },
+  { id: 'savings', label: '저축', emoji: '🏦', color: '#2f9e79' },
   { id: 'etc', label: '기타', emoji: '📦', color: '#adb5bd' },
 ]
+
+/** 지출·카드 혜택 대상 카테고리. 저축은 별도로 집계합니다. */
+export const SPENDING_CATEGORIES = CATEGORIES.filter(
+  (category) => category.id !== 'savings',
+)
+
+export function isSavingsCategory(
+  categoryId: CategoryId | string | null | undefined,
+): boolean {
+  return categoryId === 'savings'
+}
 
 export const CATEGORY_MAP: Record<CategoryId, Category> = CATEGORIES.reduce(
   (acc, category) => {

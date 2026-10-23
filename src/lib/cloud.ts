@@ -11,6 +11,7 @@ import type {
   Transaction,
 } from '../types'
 import { appCategoryForSheet } from './fixedExpenses'
+import { withSavingsDefaults } from './savings'
 import { requireSupabase } from './supabase'
 
 interface CardRow {
@@ -108,6 +109,8 @@ function sheetMinorFor(categoryId: Transaction['categoryId']): string {
       return '생활'
     case 'education':
       return '기타'
+    case 'savings':
+      return '예적금'
     case 'etc':
     default:
       return '기타'
@@ -233,29 +236,30 @@ function toTransaction(row: TransactionRow): Transaction {
 }
 
 function fromTransaction(householdId: string, transaction: Transaction) {
+  const normalized = withSavingsDefaults(transaction)
   return {
     household_id: householdId,
-    id: transaction.id,
-    date: transaction.date,
-    merchant: transaction.merchant,
-    amount: transaction.amount,
-    category_id: transaction.categoryId,
-    card_id: transaction.cardId,
-    memo: transaction.memo ?? null,
-    excluded: transaction.excluded ?? false,
-    category_major: transaction.categoryMajor ?? '생활비',
+    id: normalized.id,
+    date: normalized.date,
+    merchant: normalized.merchant,
+    amount: normalized.amount,
+    category_id: normalized.categoryId,
+    card_id: normalized.cardId,
+    memo: normalized.memo ?? null,
+    excluded: normalized.excluded ?? false,
+    category_major: normalized.categoryMajor ?? '생활비',
     category_minor:
-      transaction.categoryMinor ?? sheetMinorFor(transaction.categoryId),
-    category_group: transaction.categoryGroup ?? '생활비',
-    correction: transaction.correction ?? 0,
-    payment_method: paymentMethodFor(transaction),
-    note: transaction.note ?? null,
-    status: transaction.status ?? 'active',
+      normalized.categoryMinor ?? sheetMinorFor(normalized.categoryId),
+    category_group: normalized.categoryGroup ?? '생활비',
+    correction: normalized.correction ?? 0,
+    payment_method: paymentMethodFor(normalized),
+    note: normalized.note ?? null,
+    status: normalized.status ?? 'active',
     source: 'app',
     updated_by: 'app',
-    fixed_expense_id: transaction.fixedExpenseId ?? null,
-    fixed_expense_month: transaction.fixedExpenseMonth
-      ? `${transaction.fixedExpenseMonth}-01`
+    fixed_expense_id: normalized.fixedExpenseId ?? null,
+    fixed_expense_month: normalized.fixedExpenseMonth
+      ? `${normalized.fixedExpenseMonth}-01`
       : null,
   }
 }
@@ -320,7 +324,8 @@ export async function loadCloudState(
   const visibleTransactions = transactions.filter(
     (row) =>
       (row.status ?? 'active') === 'active' &&
-      (row.category_major ?? '생활비') === '생활비',
+      ((row.category_major ?? '생활비') === '생활비' ||
+        (row.category_id === 'savings' && !row.fixed_expense_id)),
   )
 
   const applicationMap = new Map<string, FixedExpenseApplication>()
@@ -485,11 +490,14 @@ export async function saveSettingsRemote(
 }
 
 export async function clearCloudTransactions(householdId: string): Promise<void> {
-  const { error } = await requireSupabase()
+  const supabase = requireSupabase()
+  const canceledAt = new Date().toISOString()
+
+  const { error: livingError } = await supabase
     .from('transactions')
     .update({
       status: 'canceled',
-      canceled_at: new Date().toISOString(),
+      canceled_at: canceledAt,
       cancel_reason: '생활비 전체 비우기',
       source: 'app',
       updated_by: 'app',
@@ -498,7 +506,23 @@ export async function clearCloudTransactions(householdId: string): Promise<void>
     .eq('status', 'active')
     .eq('category_major', '생활비')
 
-  if (error) throw error
+  if (livingError) throw livingError
+
+  const { error: savingsError } = await supabase
+    .from('transactions')
+    .update({
+      status: 'canceled',
+      canceled_at: canceledAt,
+      cancel_reason: '저축 내역 전체 비우기',
+      source: 'app',
+      updated_by: 'app',
+    })
+    .eq('household_id', householdId)
+    .eq('status', 'active')
+    .eq('category_id', 'savings')
+    .is('fixed_expense_id', null)
+
+  if (savingsError) throw savingsError
 }
 
 export async function replaceCloudState(

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { CardEditModal } from '../components/CardEditModal'
 import { Icon } from '../components/Icon'
 import { Badge, EmptyState, Progress } from '../components/ui'
-import { CATEGORIES, categoryOf } from '../data/categories'
+import { SPENDING_CATEGORIES, categoryOf } from '../data/categories'
 import { computeCardMonth, recommendCards } from '../lib/benefits'
 import { ratePercent, won, wonShort } from '../lib/format'
 import { useApp } from '../store'
@@ -59,7 +59,7 @@ export function CardsPage() {
             onChange={(event) => setRecCategory(event.target.value as CategoryId)}
             aria-label="결제 카테고리"
           >
-            {CATEGORIES.map((category) => (
+            {SPENDING_CATEGORIES.map((category) => (
               <option key={category.id} value={category.id}>
                 {category.emoji} {category.label}
               </option>
