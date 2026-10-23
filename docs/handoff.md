@@ -2,7 +2,7 @@
 
 기준일: **2026-10-23**
 
-최신 기능: **저축 카테고리·고정지출·저축 템플릿·확인 후 반영·Agent API**
+최신 기능: **저축 카테고리·고정지출·저축 템플릿·확인 후 반영·Agent API·Datadog 개인정보 마스킹**
 
 현재 저장소 상태: **clean**
 
@@ -82,12 +82,14 @@ GitHub에 없으므로 새 PC로 **USB/비밀번호 관리자 같은 안전한 �
 ```env
 VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
+VITE_DATADOG_ENABLED=true
 VITE_DATADOG_APPLICATION_ID=
 VITE_DATADOG_CLIENT_TOKEN=
 VITE_DATADOG_SITE=datadoghq.com
 VITE_DATADOG_SERVICE=ssen-ledger
 VITE_DATADOG_ENV=development
 VITE_DATADOG_VERSION=1.0.0
+VITE_DATADOG_REPLAY_SAMPLE_RATE=0
 ```
 
 - `VITE_SUPABASE_ANON_KEY`는 공개되어도 되는 anon key이지만 저장소에는 커밋하지 않습니다.
@@ -117,6 +119,14 @@ VITE_DATADOG_CLIENT_TOKEN
 VITE_DATADOG_SITE
 VITE_DATADOG_SERVICE
 ```
+
+Datadog 개인정보 보호 설정:
+
+- `VITE_DATADOG_ENABLED=false`이면 RUM/Logs를 완전히 끕니다. GitHub Actions에서는 Repository variable `VITE_DATADOG_ENABLED`로 제어합니다.
+- `VITE_DATADOG_REPLAY_SAMPLE_RATE`는 기본 `0`이라 세션 리플레이(화면 녹화)를 수집하지 않습니다.
+- RUM/Logs 전송 전에 화면 텍스트·입력값·클릭 대상·URL 쿼리/해시·이메일·UUID·긴 숫자를 마스킹합니다.
+- 로그인 사용자는 원본 Supabase UUID/이메일 대신 SHA-256 앞 8바이트 익명 해시만 전송합니다.
+- `VITE_DATADOG_APPLICATION_ID`와 `VITE_DATADOG_CLIENT_TOKEN`은 브라우저에 노출되는 공개 식별자입니다. `service_role` 키나 `AGENT_API_KEY`와 혼동하지 마세요.
 
 ---
 
