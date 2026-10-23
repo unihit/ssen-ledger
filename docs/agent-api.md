@@ -383,7 +383,7 @@ curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses
 {
   "data": {
     "month": "2026-10",
-    "total": 500000,
+    "total": 50000,
     "count": 1,
     "items": [
       {
