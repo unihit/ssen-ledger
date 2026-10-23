@@ -206,6 +206,7 @@ supabase/
 docs/
   agent-api.md                Muse 연동 API 사용법
   deploy-agent-api.md         Supabase 직접 배포 체크리스트
+  handoff.md                  다른 PC 작업 인계 문서
 ```
 
 ## Muse / Agent API
