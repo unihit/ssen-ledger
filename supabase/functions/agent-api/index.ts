@@ -1835,7 +1835,10 @@ async function fixedExpenses(
   const linkedByFixedExpense = new Map<string, Record<string, unknown>>()
   for (const transaction of transactions) {
     if (!transaction.fixed_expense_id) continue
-    const key = `${transaction.fixed_expense_id}:${month}`
+    const fixedMonth = transaction.fixed_expense_month
+      ? String(transaction.fixed_expense_month).slice(0, 7)
+      : month
+    const key = `${transaction.fixed_expense_id}:${fixedMonth}`
     if (!linkedByFixedExpense.has(key)) {
       linkedByFixedExpense.set(key, transaction)
     }
