@@ -420,6 +420,12 @@ function normalizeAliases(raw: Record<string, unknown>) {
     out.categoryMinor = out.subcategory
   }
 
+  // Agent가 앱 카테고리 ID만 보내도 저축 거래를 정규화합니다.
+  if (out.categoryId === 'savings') {
+    if (out.categoryMajor === undefined) out.categoryMajor = '투자납입'
+    if (out.categoryMinor === undefined) out.categoryMinor = '예적금'
+  }
+
   const path = out.category ?? out.categoryPath
   if (
     (out.categoryMajor === undefined || out.categoryMinor === undefined) &&
