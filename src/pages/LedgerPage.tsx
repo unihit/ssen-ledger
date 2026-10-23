@@ -9,6 +9,7 @@ import {
   fixedExpenseStatus,
   fixedExpensesForMonth,
   fixedExpenseStatusLabel,
+  isSavingsFixedExpense,
 } from '../lib/fixedExpenses'
 import { won, wonShort } from '../lib/format'
 import { useApp } from '../store'
@@ -99,6 +100,9 @@ export function LedgerPage({
   const fixedRecorded = fixedItems.filter(
     (item) => item.status === 'recorded',
   ).length
+  const fixedSavingsTotal = fixedItems
+    .filter((item) => isSavingsFixedExpense(item.fixedExpense))
+    .reduce((sum, item) => sum + item.fixedExpense.amount, 0)
 
   return (
     <div className="page">
@@ -141,14 +145,17 @@ export function LedgerPage({
         <header className="panel__head">
           <div>
             <h2>
-              <Icon name="ledger" size={18} /> 이번 달 고정지출
+              <Icon name="ledger" size={18} /> 이번 달 고정지출·저축
             </h2>
-            <p>템플릿은 지출에 잡히지 않아요. 확인 후 반영해 주세요.</p>
+            <p>템플릿은 지출·저축에 잡히지 않아요. 확인 후 반영해 주세요.</p>
           </div>
           <div className="fixed-panel__summary">
             <strong>{won(fixedTotal)}</strong>
             <span>
               {fixedRecorded}/{fixedItems.length} 반영
+              {fixedSavingsTotal > 0
+                ? ` · 저축 ${won(fixedSavingsTotal)}`
+                : ''}
             </span>
           </div>
         </header>
@@ -191,7 +198,10 @@ export function LedgerPage({
                     </strong>
                     <span>
                       매월 {fixedExpenseDayLabel(fixedExpense.dayOfMonth)} ·{' '}
-                      {category.label} · {card?.name ?? '현금·계좌'}
+                      {isSavingsFixedExpense(fixedExpense)
+                        ? '저축'
+                        : category.label}{' '}
+                      · {card?.name ?? '현금·계좌'}
                     </span>
                     <small>
                       {status === 'recorded'

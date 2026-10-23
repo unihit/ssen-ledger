@@ -560,6 +560,19 @@ p {
   letter-spacing: -0.035em;
 }
 
+.goal__row--sub {
+  margin-bottom: 4px;
+}
+
+.goal__row--sub span {
+  font-size: 11.5px;
+}
+
+.goal__row--sub strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
 .goal__hint {
   margin-top: 10px;
   color: var(--text-3);

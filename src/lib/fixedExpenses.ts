@@ -76,6 +76,16 @@ export function categoryGroupForMajor(categoryMajor: string): string {
   }
 }
 
+/** IRP·연금처럼 투자납입으로 분류된 고정지출인지 */
+export function isSavingsFixedExpense(
+  fixedExpense: Pick<FixedExpense, 'categoryMajor' | 'categoryGroup'>,
+): boolean {
+  return (
+    fixedExpense.categoryGroup === '투자납입' ||
+    fixedExpense.categoryMajor === '투자납입'
+  )
+}
+
 export function fixedExpenseDayLabel(dayOfMonth: number): string {
   return dayOfMonth >= 31 ? '말일' : `${dayOfMonth}일`
 }

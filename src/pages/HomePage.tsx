@@ -18,6 +18,7 @@ import {
   fixedExpenseDayLabel,
   fixedExpenseStatus,
   fixedExpensesForMonth,
+  isSavingsFixedExpense,
 } from '../lib/fixedExpenses'
 import { won, wonShort } from '../lib/format'
 
@@ -109,6 +110,16 @@ export function HomePage({
   const fixedRecorded = fixedItems.filter(
     (item) => item.status === 'recorded',
   ).length
+  const fixedSavingsApplied = fixedItems.reduce((sum, item) => {
+    if (!isSavingsFixedExpense(item.fixedExpense) || !item.application) {
+      return sum
+    }
+    return sum + item.application.amount
+  }, 0)
+  const fixedSavingsPlanned = fixedItems
+    .filter((item) => isSavingsFixedExpense(item.fixedExpense))
+    .reduce((sum, item) => sum + item.fixedExpense.amount, 0)
+  const cashSavings = savings - fixedSavingsApplied
   const fixedUpcoming = fixedItems
     .filter((item) => item.status !== 'recorded')
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
@@ -202,7 +213,7 @@ export function HomePage({
           <header className="panel__head">
             <div>
               <h2>저축 목표</h2>
-              <p>수입에서 지출을 뺀 금액 기준</p>
+              <p>현금 저축 + 고정 저축 기준</p>
             </div>
             <Badge tone={savings >= goal ? 'success' : 'neutral'}>
               {savings >= goal ? '목표 달성' : `목표 ${wonShort(goal)}`}
@@ -213,6 +224,16 @@ export function HomePage({
               <span>이번 달 저축 가능액</span>
               <strong>{won(savings)}</strong>
             </div>
+            <div className="goal__row goal__row--sub">
+              <span>현금 저축</span>
+              <strong className={cashSavings < 0 ? 'is-negative' : ''}>
+                {won(cashSavings)}
+              </strong>
+            </div>
+            <div className="goal__row goal__row--sub">
+              <span>고정 저축 (IRP 등)</span>
+              <strong>{won(fixedSavingsApplied)}</strong>
+            </div>
             <Progress
               value={Math.max(0, savings)}
               max={Math.max(1, goal)}
@@ -220,6 +241,9 @@ export function HomePage({
             />
             <p className="goal__hint">
               수입 {won(state.settings.monthlyIncome)} · 지출 {won(summary.spend)}
+              {fixedSavingsPlanned > 0
+                ? ` · 고정 저축 반영 ${won(fixedSavingsApplied)}`
+                : ''}
               {savings < goal
                 ? ` · 목표까지 ${won(Math.max(0, goal - savings))} 남았어요`
                 : ' · 이번 달 목표를 채웠어요 🎉'}
@@ -271,13 +295,16 @@ export function HomePage({
       <section className="panel fixed-home">
         <header className="panel__head">
           <div>
-            <h2>이번 달 고정지출</h2>
-            <p>반영 전에는 지출로 잡히지 않아요</p>
+            <h2>이번 달 고정지출·저축</h2>
+            <p>반영 전에는 지출·저축으로 잡히지 않아요</p>
           </div>
           <div className="fixed-panel__summary">
             <strong>{won(fixedTotal)}</strong>
             <span>
               {fixedRecorded}/{fixedItems.length} 반영
+              {fixedSavingsPlanned > 0
+                ? ` · 저축 ${won(fixedSavingsPlanned)}`
+                : ''}
             </span>
           </div>
         </header>
@@ -295,6 +322,7 @@ export function HomePage({
                   <li key={fixedExpense.id}>
                     <span>{fixedExpense.name}</span>
                     <small>
+                      {isSavingsFixedExpense(fixedExpense) ? '저축 · ' : ''}
                       {fixedExpenseDayLabel(fixedExpense.dayOfMonth)} ·{' '}
                       {dueDate.slice(5).replace('-', '/')}
                     </small>

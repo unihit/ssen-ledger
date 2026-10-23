@@ -6,6 +6,7 @@ import { CATEGORIES, categoryOf } from '../data/categories'
 import { downloadText, transactionsToCSV } from '../lib/backup'
 import {
   fixedExpenseDayLabel,
+  isSavingsFixedExpense,
 } from '../lib/fixedExpenses'
 import { won } from '../lib/format'
 import { useAuth } from '../lib/auth'
@@ -377,10 +378,10 @@ export function SettingsPage() {
       <section className="panel fixed-settings">
         <header className="panel__head">
           <div>
-            <h2>고정지출 관리</h2>
+            <h2>고정지출·저축 관리</h2>
             <p>
               매월 반영 후보를 만들고, 확인 후 실제 거래로 기록해요. 반영 전에는
-              지출에 잡히지 않아요.
+              지출·저축에 잡히지 않아요.
             </p>
           </div>
           <button
@@ -418,9 +419,13 @@ export function SettingsPage() {
                     <strong>{fixedExpense.name}</strong>
                     <span>
                       매월 {fixedExpenseDayLabel(fixedExpense.dayOfMonth)} ·{' '}
-                      {category.label} · {card?.name ?? '현금·계좌'}
+                      {isSavingsFixedExpense(fixedExpense)
+                        ? '저축'
+                        : category.label}{' '}
+                      · {card?.name ?? '현금·계좌'}
                     </span>
                     <small>
+                      {isSavingsFixedExpense(fixedExpense) ? '저축 · ' : ''}
                       {fixedExpense.categoryMajor}-{fixedExpense.categoryMinor}
                       {fixedExpense.startMonth
                         ? ` · ${fixedExpense.startMonth}부터`
