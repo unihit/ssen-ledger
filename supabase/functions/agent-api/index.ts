@@ -1917,11 +1917,14 @@ async function fixedExpenses(
 
       return {
         ...base,
+        definitionId: base.id,
+        date: candidateDate,
         candidateDate: matched
           ? String(matched.date)
           : candidateDate,
         candidateStatus,
         candidateTransactionId: matched?.id ?? null,
+        matchedTransactionId: matched?.id ?? null,
         fixedExpenseMonth: matched?.fixed_expense_month
           ? String(matched.fixed_expense_month).slice(0, 7)
           : null,

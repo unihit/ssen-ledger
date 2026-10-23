@@ -392,6 +392,7 @@ curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses
     "items": [
       {
         "id": "<fixed-expense-uuid>",
+        "definitionId": "<fixed-expense-uuid>",
         "active": true,
         "name": "보험료",
         "amount": 50000,
@@ -405,9 +406,11 @@ curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses
         "paymentMethod": "자동이체",
         "startMonth": "2026-10",
         "endMonth": null,
+        "date": "2026-10-31",
         "candidateDate": "2026-10-31",
         "candidateStatus": "예정",
         "candidateTransactionId": null,
+        "matchedTransactionId": null,
         "fixedExpenseMonth": null
       }
     ]
@@ -422,7 +425,11 @@ curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses
 - `반영 후보`: 후보일이 지났지만 거래가 없음
 - `기간·일자 확인`: 반영일이 올바르지 않음
 
+`definitionId`는 `id`와 같은 템플릿 ID의 별칭입니다. `date`는 해당 월의 예정 반영일이고, `candidateDate`는 실제로 연결된 거래가 있으면 그 거래 날짜입니다. `matchedTransactionId`는 `candidateTransactionId`의 별칭입니다.
+
 `dayOfMonth: 31`은 그 달의 **말일**을 뜻합니다. 2월이면 28/29일, 4월이면 30일로 계산됩니다.
+
+일괄 `materialize` 엔드포인트는 제공하지 않습니다. 앱은 사용자가 확인한 뒤 반영하는 흐름이며, 필요하면 `POST /v1/fixed-expenses/:id/apply`를 항목별로 호출하면 됩니다. `apply`는 같은 달에 중복 거래를 만들지 않고 기존 연결 거래를 갱신합니다.
 
 ### 6-2. 생성
 
