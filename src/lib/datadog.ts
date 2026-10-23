@@ -14,6 +14,8 @@ const SENSITIVE_QUERY_PATTERN =
 const LONG_NUMBER_PATTERN = /\b\d{6,}\b/g
 const SENSITIVE_KEY_PATTERN =
   /(?:email|token|secret|password|apikey|api_key|household|account|user)/i
+const AMOUNT_KEY_PATTERN =
+  /(?:amount|price|cost|balance|income|expense|spend|spent|savings|금액|거래|저축|결제)/i
 
 function asRecord(value: unknown): MutableRecord | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -54,9 +56,10 @@ function redactDeep(value: unknown, depth = 0): unknown {
 
   const result: MutableRecord = {}
   for (const [key, child] of Object.entries(record)) {
-    result[key] = SENSITIVE_KEY_PATTERN.test(key)
-      ? '[redacted]'
-      : redactDeep(child, depth + 1)
+    result[key] =
+      SENSITIVE_KEY_PATTERN.test(key) || AMOUNT_KEY_PATTERN.test(key)
+        ? '[redacted]'
+        : redactDeep(child, depth + 1)
   }
   return result
 }
