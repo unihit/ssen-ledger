@@ -3,21 +3,35 @@ import { Icon } from '../components/Icon'
 import { Badge, EmptyState, MonthPicker } from '../components/ui'
 import { CATEGORIES, categoryOf } from '../data/categories'
 import { benefitRuleForTransaction } from '../lib/benefits'
-import { formatDateKo } from '../lib/date'
+import { formatDateKo, formatDateShort, todayISO } from '../lib/date'
+import {
+  fixedExpenseDayLabel,
+  fixedExpenseStatus,
+  fixedExpensesForMonth,
+  fixedExpenseStatusLabel,
+} from '../lib/fixedExpenses'
 import { won, wonShort } from '../lib/format'
 import { useApp } from '../store'
-import type { Transaction } from '../types'
+import type { FixedExpense, Transaction } from '../types'
 
 type CardFilter = 'all' | 'cash' | string
 
 export function LedgerPage({
   onAdd,
   onEdit,
+  onApplyFixedExpense,
 }: {
   onAdd: () => void
   onEdit: (transaction: Transaction) => void
+  onApplyFixedExpense: (fixedExpense: FixedExpense) => void
 }) {
-  const { state, month, setMonth } = useApp()
+  const {
+    state,
+    month,
+    setMonth,
+    fixedExpenses,
+    fixedExpenseApplications,
+  } = useApp()
   const [categoryFilter, setCategoryFilter] = useState<'all' | (typeof CATEGORIES)[number]['id']>(
     'all',
   )
@@ -67,6 +81,25 @@ export function LedgerPage({
   const total = filtered.reduce((sum, transaction) => sum + transaction.amount, 0)
   const excludedCount = filtered.filter((transaction) => transaction.excluded).length
 
+  const fixedItems = fixedExpensesForMonth(fixedExpenses, month).map(
+    (fixedExpense) => ({
+      fixedExpense,
+      ...fixedExpenseStatus(
+        fixedExpense,
+        month,
+        fixedExpenseApplications,
+        todayISO(),
+      ),
+    }),
+  )
+  const fixedTotal = fixedItems.reduce(
+    (sum, item) => sum + item.fixedExpense.amount,
+    0,
+  )
+  const fixedRecorded = fixedItems.filter(
+    (item) => item.status === 'recorded',
+  ).length
+
   return (
     <div className="page">
       <header className="page-head">
@@ -101,6 +134,91 @@ export function LedgerPage({
             <span>실적 제외</span>
             <strong>{excludedCount}건</strong>
           </div>
+        )}
+      </section>
+
+      <section className="panel fixed-panel">
+        <header className="panel__head">
+          <div>
+            <h2>
+              <Icon name="ledger" size={18} /> 이번 달 고정지출
+            </h2>
+            <p>템플릿은 지출에 잡히지 않아요. 확인 후 반영해 주세요.</p>
+          </div>
+          <div className="fixed-panel__summary">
+            <strong>{won(fixedTotal)}</strong>
+            <span>
+              {fixedRecorded}/{fixedItems.length} 반영
+            </span>
+          </div>
+        </header>
+
+        {fixedItems.length === 0 ? (
+          <EmptyState
+            emoji="📌"
+            title="이번 달 고정지출이 없어요"
+            body="설정에서 고정지출을 등록하면 매월 반영 후보를 보여드려요."
+          />
+        ) : (
+          <ul className="fixed-list">
+            {fixedItems.map(({ fixedExpense, status, dueDate, application }) => {
+              const category = categoryOf(fixedExpense.categoryId)
+              const card = fixedExpense.cardId
+                ? state.cards.find((item) => item.id === fixedExpense.cardId)
+                : undefined
+              return (
+                <li className="fixed-row" key={fixedExpense.id}>
+                  <span
+                    className="fixed-row__icon"
+                    style={{ background: `${category.color}18` }}
+                  >
+                    {category.emoji}
+                  </span>
+                  <div className="fixed-row__main">
+                    <strong>
+                      {fixedExpense.name}
+                      <Badge
+                        tone={
+                          status === 'recorded'
+                            ? 'success'
+                            : status === 'due'
+                              ? 'warn'
+                              : 'neutral'
+                        }
+                      >
+                        {fixedExpenseStatusLabel(status)}
+                      </Badge>
+                    </strong>
+                    <span>
+                      매월 {fixedExpenseDayLabel(fixedExpense.dayOfMonth)} ·{' '}
+                      {category.label} · {card?.name ?? '현금·계좌'}
+                    </span>
+                    <small>
+                      {status === 'recorded'
+                        ? `${formatDateShort(application?.date ?? dueDate)} 반영`
+                        : `${formatDateShort(dueDate)} 예정`}
+                    </small>
+                  </div>
+                  <div className="fixed-row__side">
+                    <strong>{won(fixedExpense.amount)}</strong>
+                    {status === 'recorded' ? (
+                      <span className="fixed-row__done">
+                        <Icon name="check" size={14} /> 완료
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn--tiny btn--primary"
+                        onClick={() => onApplyFixedExpense(fixedExpense)}
+                      >
+                        반영
+                      </button>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
         )}
       </section>
 

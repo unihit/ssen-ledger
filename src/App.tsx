@@ -3,7 +3,7 @@ import { Icon, type IconName } from './components/Icon'
 import { TransactionModal } from './components/TransactionModal'
 import { useApp } from './store'
 import type { Tab } from './nav'
-import type { Transaction } from './types'
+import type { FixedExpense, Transaction } from './types'
 import { HomePage } from './pages/HomePage'
 import { LedgerPage } from './pages/LedgerPage'
 import { CardsPage } from './pages/CardsPage'
@@ -21,7 +21,10 @@ const TABS: { id: Tab; label: string; icon: IconName }[] = [
 export default function App() {
   const { month } = useApp()
   const [tab, setTab] = useState<Tab>('home')
-  const [editor, setEditor] = useState<{ transaction?: Transaction } | null>(null)
+  const [editor, setEditor] = useState<{
+    transaction?: Transaction
+    fixedExpense?: FixedExpense
+  } | null>(null)
 
   useEffect(() => {
     window.scrollTo(0, 0)
@@ -29,6 +32,8 @@ export default function App() {
 
   const openAdd = () => setEditor({})
   const openEdit = (transaction: Transaction) => setEditor({ transaction })
+  const openFixedExpense = (fixedExpense: FixedExpense) =>
+    setEditor({ fixedExpense })
 
   const nav = (mobile: boolean) => (
     <nav
@@ -74,7 +79,13 @@ export default function App() {
         {tab === 'home' && (
           <HomePage onAdd={openAdd} onEdit={openEdit} onNavigate={setTab} />
         )}
-        {tab === 'ledger' && <LedgerPage onAdd={openAdd} onEdit={openEdit} />}
+        {tab === 'ledger' && (
+          <LedgerPage
+            onAdd={openAdd}
+            onEdit={openEdit}
+            onApplyFixedExpense={openFixedExpense}
+          />
+        )}
         {tab === 'cards' && <CardsPage />}
         {tab === 'report' && <ReportPage />}
         {tab === 'settings' && <SettingsPage />}
@@ -93,8 +104,13 @@ export default function App() {
 
       {editor && (
         <TransactionModal
-          key={editor.transaction?.id ?? 'new'}
+          key={
+            editor.transaction?.id ??
+            editor.fixedExpense?.id ??
+            'new'
+          }
           initial={editor.transaction}
+          fixedExpense={editor.fixedExpense}
           month={month}
           onClose={() => setEditor(null)}
         />

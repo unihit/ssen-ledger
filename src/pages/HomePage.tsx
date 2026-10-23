@@ -14,6 +14,11 @@ import {
 import { computeCardMonth } from '../lib/benefits'
 import { categoryOf } from '../data/categories'
 import { daysElapsed, daysInMonth, formatDateKo } from '../lib/date'
+import {
+  fixedExpenseDayLabel,
+  fixedExpenseStatus,
+  fixedExpensesForMonth,
+} from '../lib/fixedExpenses'
 import { won, wonShort } from '../lib/format'
 
 export function HomePage({
@@ -25,7 +30,13 @@ export function HomePage({
   onEdit: (transaction: Transaction) => void
   onNavigate: (tab: Tab) => void
 }) {
-  const { state, month, setMonth } = useApp()
+  const {
+    state,
+    month,
+    setMonth,
+    fixedExpenses,
+    fixedExpenseApplications,
+  } = useApp()
   const summary = budgetSummary(state, month)
   const slices = categorySlices(state.transactions, month)
   const budgetRows = categoryBudgetRows(state, month)
@@ -80,6 +91,28 @@ export function HomePage({
 
   const cardName = (id: string | null) =>
     id ? state.cards.find((card) => card.id === id)?.name ?? '카드' : '현금·계좌'
+
+  const fixedItems = fixedExpensesForMonth(fixedExpenses, month).map(
+    (fixedExpense) => ({
+      fixedExpense,
+      ...fixedExpenseStatus(
+        fixedExpense,
+        month,
+        fixedExpenseApplications,
+      ),
+    }),
+  )
+  const fixedTotal = fixedItems.reduce(
+    (sum, item) => sum + item.fixedExpense.amount,
+    0,
+  )
+  const fixedRecorded = fixedItems.filter(
+    (item) => item.status === 'recorded',
+  ).length
+  const fixedUpcoming = fixedItems
+    .filter((item) => item.status !== 'recorded')
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+    .slice(0, 3)
 
   return (
     <div className="page">
@@ -234,6 +267,56 @@ export function HomePage({
           </ul>
         </section>
       </div>
+
+      <section className="panel fixed-home">
+        <header className="panel__head">
+          <div>
+            <h2>이번 달 고정지출</h2>
+            <p>반영 전에는 지출로 잡히지 않아요</p>
+          </div>
+          <div className="fixed-panel__summary">
+            <strong>{won(fixedTotal)}</strong>
+            <span>
+              {fixedRecorded}/{fixedItems.length} 반영
+            </span>
+          </div>
+        </header>
+        {fixedItems.length === 0 ? (
+          <p className="panel__empty">설정에서 고정지출을 등록해 보세요.</p>
+        ) : (
+          <div className="fixed-home__body">
+            <ul className="fixed-home__list">
+              {fixedUpcoming.length === 0 ? (
+                <li className="fixed-home__done">
+                  <Icon name="check" size={16} /> 이번 달 고정지출을 모두 반영했어요.
+                </li>
+              ) : (
+                fixedUpcoming.map(({ fixedExpense, dueDate }) => (
+                  <li key={fixedExpense.id}>
+                    <span>{fixedExpense.name}</span>
+                    <small>
+                      {fixedExpenseDayLabel(fixedExpense.dayOfMonth)} ·{' '}
+                      {dueDate.slice(5).replace('-', '/')}
+                    </small>
+                    <strong>{won(fixedExpense.amount)}</strong>
+                  </li>
+                ))
+              )}
+            </ul>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                onNavigate('ledger')
+                navigateTo()
+              }}
+            >
+              가계부에서 반영
+              <Icon name="right" size={15} />
+            </button>
+          </div>
+        )}
+      </section>
 
       <section className="panel">
         <header className="panel__head">

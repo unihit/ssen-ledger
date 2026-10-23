@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
+import { FixedExpenseEditModal } from '../components/FixedExpenseEditModal'
 import { Icon } from '../components/Icon'
-import { Badge } from '../components/ui'
-import { CATEGORIES } from '../data/categories'
+import { Badge, EmptyState } from '../components/ui'
+import { CATEGORIES, categoryOf } from '../data/categories'
 import { downloadText, transactionsToCSV } from '../lib/backup'
+import {
+  fixedExpenseDayLabel,
+} from '../lib/fixedExpenses'
 import { won } from '../lib/format'
 import { useAuth } from '../lib/auth'
 import { useApp } from '../store'
+import type { FixedExpense } from '../types'
 
 function toNumber(value: string): number {
   const parsed = Number(value.replace(/[^\d]/g, ''))
@@ -15,6 +20,7 @@ function toNumber(value: string): number {
 export function SettingsPage() {
   const {
     state,
+    fixedExpenses,
     updateSettings,
     resetToInitial,
     clearAll,
@@ -25,6 +31,9 @@ export function SettingsPage() {
     syncError,
   } = useApp()
   const { configured, user, signOut } = useAuth()
+  const [fixedEditor, setFixedEditor] = useState<{
+    fixedExpense?: FixedExpense
+  } | null>(null)
   const [income, setIncome] = useState(String(state.settings.monthlyIncome))
   const [budget, setBudget] = useState(String(state.settings.monthlyBudget))
   const [goal, setGoal] = useState(String(state.settings.monthlyGoal))
@@ -109,6 +118,10 @@ export function SettingsPage() {
       setMessage('결제 내역을 모두 삭제했어요.')
     }
   }
+
+  const activeFixedExpenses = fixedExpenses.filter(
+    (fixedExpense) => fixedExpense.active,
+  )
 
   const syncLabel = !configured
     ? '로컬 모드'
@@ -360,6 +373,84 @@ export function SettingsPage() {
           </section>
         </div>
       </div>
+
+      <section className="panel fixed-settings">
+        <header className="panel__head">
+          <div>
+            <h2>고정지출 관리</h2>
+            <p>
+              매월 반영 후보를 만들고, 확인 후 실제 거래로 기록해요. 반영 전에는
+              지출에 잡히지 않아요.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => setFixedEditor({})}
+          >
+            <Icon name="plus" size={18} />
+            고정지출 등록
+          </button>
+        </header>
+
+        {activeFixedExpenses.length === 0 ? (
+          <EmptyState
+            emoji="📌"
+            title="등록된 고정지출이 없어요"
+            body="월세·보험료·구독처럼 매월 나가는 항목을 등록해 보세요."
+          />
+        ) : (
+          <ul className="fixed-settings-list">
+            {activeFixedExpenses.map((fixedExpense) => {
+              const category = categoryOf(fixedExpense.categoryId)
+              const card = fixedExpense.cardId
+                ? state.cards.find((item) => item.id === fixedExpense.cardId)
+                : undefined
+              return (
+                <li className="fixed-settings-row" key={fixedExpense.id}>
+                  <span
+                    className="fixed-settings-row__icon"
+                    style={{ background: `${category.color}18` }}
+                  >
+                    {category.emoji}
+                  </span>
+                  <div className="fixed-settings-row__main">
+                    <strong>{fixedExpense.name}</strong>
+                    <span>
+                      매월 {fixedExpenseDayLabel(fixedExpense.dayOfMonth)} ·{' '}
+                      {category.label} · {card?.name ?? '현금·계좌'}
+                    </span>
+                    <small>
+                      {fixedExpense.categoryMajor}-{fixedExpense.categoryMinor}
+                      {fixedExpense.startMonth
+                        ? ` · ${fixedExpense.startMonth}부터`
+                        : ''}
+                    </small>
+                  </div>
+                  <strong className="fixed-settings-row__amount">
+                    {won(fixedExpense.amount)}
+                  </strong>
+                  <button
+                    type="button"
+                    className="btn btn--tiny btn--ghost"
+                    onClick={() => setFixedEditor({ fixedExpense })}
+                  >
+                    수정
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </section>
+
+      {fixedEditor && (
+        <FixedExpenseEditModal
+          key={fixedEditor.fixedExpense?.id ?? 'new-fixed'}
+          fixedExpense={fixedEditor.fixedExpense}
+          onClose={() => setFixedEditor(null)}
+        />
+      )}
     </div>
   )
 }

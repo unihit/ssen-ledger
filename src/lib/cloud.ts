@@ -4,10 +4,13 @@ import type {
   BenefitRule,
   Card,
   CardKind,
+  FixedExpense,
+  FixedExpenseApplication,
   PerformanceTier,
   Settings,
   Transaction,
 } from '../types'
+import { appCategoryForSheet } from './fixedExpenses'
 import { requireSupabase } from './supabase'
 
 interface CardRow {
@@ -44,11 +47,33 @@ interface TransactionRow {
   note?: string | null
   status?: 'active' | 'canceled' | null
   source?: string | null
+  fixed_expense_id?: string | null
+  fixed_expense_month?: string | null
+}
+
+interface FixedExpenseRow {
+  id: string
+  active: boolean
+  start_month: string | null
+  end_month: string | null
+  day_of_month: number
+  category_major: string
+  category_minor: string
+  category_group: string
+  category_id: string | null
+  amount: number
+  merchant: string | null
+  memo: string | null
+  payment_method: string | null
+  note: string | null
+  card_id: string | null
 }
 
 export interface CloudSnapshot {
   state: AppState
   hasAnyTransaction: boolean
+  fixedExpenses: FixedExpense[]
+  fixedExpenseApplications: FixedExpenseApplication[]
 }
 
 function sheetMinorFor(categoryId: Transaction['categoryId']): string {
@@ -133,6 +158,54 @@ function fromCard(householdId: string, card: Card) {
   }
 }
 
+function toFixedExpense(row: FixedExpenseRow): FixedExpense {
+  return {
+    id: row.id,
+    name: row.merchant ?? '',
+    amount: Number(row.amount) || 0,
+    categoryId:
+      (row.category_id as FixedExpense['categoryId'] | null) ??
+      appCategoryForSheet(row.category_major, row.category_minor),
+    categoryMajor: row.category_major,
+    categoryMinor: row.category_minor,
+    categoryGroup: row.category_group,
+    cardId: row.card_id,
+    paymentMethod: row.payment_method ?? undefined,
+    dayOfMonth: Number(row.day_of_month) || 1,
+    startMonth: row.start_month
+      ? String(row.start_month).slice(0, 7)
+      : undefined,
+    endMonth: row.end_month ? String(row.end_month).slice(0, 7) : undefined,
+    memo: row.memo ?? undefined,
+    note: row.note ?? undefined,
+    active: Boolean(row.active),
+  }
+}
+
+function fromFixedExpense(householdId: string, fixedExpense: FixedExpense) {
+  return {
+    household_id: householdId,
+    id: fixedExpense.id,
+    active: fixedExpense.active,
+    start_month: fixedExpense.startMonth
+      ? `${fixedExpense.startMonth}-01`
+      : null,
+    end_month: fixedExpense.endMonth ? `${fixedExpense.endMonth}-01` : null,
+    day_of_month: fixedExpense.dayOfMonth,
+    category_major: fixedExpense.categoryMajor,
+    category_minor: fixedExpense.categoryMinor,
+    category_group: fixedExpense.categoryGroup,
+    category_id: fixedExpense.categoryId,
+    amount: fixedExpense.amount,
+    merchant: fixedExpense.name,
+    memo: fixedExpense.memo ?? null,
+    payment_method: fixedExpense.paymentMethod ?? null,
+    note: fixedExpense.note ?? null,
+    card_id: fixedExpense.cardId,
+    updated_by: 'app',
+  }
+}
+
 function toTransaction(row: TransactionRow): Transaction {
   return {
     id: row.id,
@@ -152,6 +225,10 @@ function toTransaction(row: TransactionRow): Transaction {
     note: row.note ?? undefined,
     status: row.status ?? 'active',
     source: row.source ?? undefined,
+    fixedExpenseId: row.fixed_expense_id ?? undefined,
+    fixedExpenseMonth: row.fixed_expense_month
+      ? String(row.fixed_expense_month).slice(0, 7)
+      : undefined,
   }
 }
 
@@ -176,6 +253,10 @@ function fromTransaction(householdId: string, transaction: Transaction) {
     status: transaction.status ?? 'active',
     source: 'app',
     updated_by: 'app',
+    fixed_expense_id: transaction.fixedExpenseId ?? null,
+    fixed_expense_month: transaction.fixedExpenseMonth
+      ? `${transaction.fixedExpenseMonth}-01`
+      : null,
   }
 }
 
@@ -211,18 +292,25 @@ export async function loadCloudState(
 ): Promise<CloudSnapshot> {
   const supabase = requireSupabase()
 
-  const [cardsResult, householdResult, transactions] = await Promise.all([
-    supabase.from('cards').select('*').eq('household_id', householdId),
-    supabase
-      .from('households')
-      .select('settings')
-      .eq('id', householdId)
-      .single(),
-    loadAllTransactions(householdId),
-  ])
+  const [cardsResult, householdResult, transactions, fixedExpenseResult] =
+    await Promise.all([
+      supabase.from('cards').select('*').eq('household_id', householdId),
+      supabase
+        .from('households')
+        .select('settings')
+        .eq('id', householdId)
+        .single(),
+      loadAllTransactions(householdId),
+      supabase
+        .from('recurring_expenses')
+        .select('*')
+        .eq('household_id', householdId)
+        .order('created_at', { ascending: true }),
+    ])
 
   if (cardsResult.error) throw cardsResult.error
   if (householdResult.error) throw householdResult.error
+  if (fixedExpenseResult.error) throw fixedExpenseResult.error
 
   const storedSettings =
     householdResult.data?.settings && typeof householdResult.data.settings === 'object'
@@ -235,6 +323,23 @@ export async function loadCloudState(
       (row.category_major ?? '생활비') === '생활비',
   )
 
+  const applicationMap = new Map<string, FixedExpenseApplication>()
+  for (const row of transactions) {
+    if ((row.status ?? 'active') !== 'active' || !row.fixed_expense_id) continue
+    const month = row.fixed_expense_month
+      ? String(row.fixed_expense_month).slice(0, 7)
+      : row.date.slice(0, 7)
+    const key = `${row.fixed_expense_id}:${month}`
+    if (applicationMap.has(key)) continue
+    applicationMap.set(key, {
+      fixedExpenseId: row.fixed_expense_id,
+      month,
+      transactionId: row.id,
+      date: row.date,
+      amount: Number(row.amount) || 0,
+    })
+  }
+
   return {
     state: {
       version: 1,
@@ -243,6 +348,10 @@ export async function loadCloudState(
       settings: { ...DEFAULT_SETTINGS, ...storedSettings },
     },
     hasAnyTransaction: transactions.length > 0,
+    fixedExpenses: ((fixedExpenseResult.data ?? []) as FixedExpenseRow[]).map(
+      toFixedExpense,
+    ),
+    fixedExpenseApplications: [...applicationMap.values()],
   }
 }
 
@@ -328,6 +437,35 @@ export async function deleteCardRemote(
   const { error } = await requireSupabase()
     .from('cards')
     .delete()
+    .eq('household_id', householdId)
+    .eq('id', id)
+
+  if (error) throw error
+}
+
+export async function saveFixedExpenseRemote(
+  householdId: string,
+  fixedExpense: FixedExpense,
+): Promise<void> {
+  const { error } = await requireSupabase()
+    .from('recurring_expenses')
+    .upsert(fromFixedExpense(householdId, fixedExpense), {
+      onConflict: 'id',
+    })
+
+  if (error) throw error
+}
+
+export async function deactivateFixedExpenseRemote(
+  householdId: string,
+  id: string,
+): Promise<void> {
+  const { error } = await requireSupabase()
+    .from('recurring_expenses')
+    .update({
+      active: false,
+      updated_by: 'app',
+    })
     .eq('household_id', householdId)
     .eq('id', id)
 

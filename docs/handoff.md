@@ -1,7 +1,7 @@
 # 쎈 가계부 — 다른 PC 작업 인계 문서
 
 기준일: **2026-10-23**  
-기능 기준 최신 커밋: **`d7f8c5a`** (`Show minimum transaction benefit conditions`)  
+최신 기능: **고정지출 템플릿·확인 후 반영·Agent API**  
 현재 저장소 상태: **clean**
 
 > 이 문서는 **공개 저장소에 올려도 되는 기술/운영 컨텍스트**만 담고 있습니다.
@@ -240,6 +240,28 @@ curl.exe "https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api/v1/met
 
 ---
 
+## 6-1. 고정지출
+
+고정지출은 `recurring_expenses`에 **템플릿**으로 저장합니다. 템플릿 자체는 실제 거래가 아니므로 반영 전에는 지출·카드 실적에 잡히지 않습니다.
+
+- 앱 화면
+  - `설정` → 고정지출 관리: 템플릿 등록·수정·숨기기
+  - `가계부` → 이번 달 고정지출: `예정`/`반영 후보`/`기록됨` 상태와 반영 버튼
+  - `홈` → 이번 달 고정지출 요약
+- 반영 흐름
+  1. 템플릿의 이름·금액·반영일·카테고리·카드로 `TransactionModal`을 미리 채웁니다.
+  2. 사용자가 내용을 확인하고 저장해야 실제 `transactions` 행이 생성됩니다.
+  3. 생성된 거래에는 `fixed_expense_id`와 `fixed_expense_month`가 연결됩니다.
+  4. 같은 달에 중복 반영되지 않도록 활성 거래에 부분 unique index가 걸려 있습니다.
+- `day_of_month = 31`은 **말일**입니다. 2월은 28/29일, 30일까지 있는 달은 30일로 계산합니다.
+- 보험료처럼 실제 결제일이 달라지는 항목은 반영 시 날짜를 바꿀 수 있고, Agent API의 `apply`에 `date`를 보내 기존 거래 날짜를 수정할 수 있습니다.
+- 고정지출 숨기기는 `active = false` 소프트 삭제입니다. 이미 반영된 거래는 취소·삭제하지 않습니다.
+- `recurring_expenses` 변경은 `ledger_history`에 `entity_type = 'recurring_expense'`로 기록됩니다.
+
+현재 여섯 개 템플릿이 Supabase에만 입력되어 있습니다. 실제 금액·가구 UUID는 이 공개 문서에 기록하지 않습니다. 결제 카드가 연결되지 않은 항목은 `자동이체`/현금·계좌로 설정되어 있으므로, 실제 카드 결제 항목은 설정 화면에서 카드를 지정해야 카드 혜택이 계산됩니다.
+
+---
+
 ## 7. Muse / Agent API
 
 - 위치: `supabase/functions/agent-api/index.ts`
@@ -259,6 +281,10 @@ curl.exe "https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api/v1/met
 - `GET /v1/aggregates/monthly`
 - `GET /v1/balance-snapshots`
 - `GET/PUT /v1/balance-snapshots/:month`
+- `GET/POST /v1/fixed-expenses`
+- `GET/PATCH/DELETE /v1/fixed-expenses/:id`
+- `POST /v1/fixed-expenses/:id/apply` — 실제 거래 생성/날짜 수정
+- `GET /v1/fixed-expenses/:id/history`
 
 ### 허용 결제수단
 
@@ -340,6 +366,13 @@ b9bf475 Accept card names in Muse payment method
 4. **Supabase CLI 병렬 쿼리 주의**
    - `cli_login_postgres` 인증 오류가 간헐적으로 발생할 수 있음
    - DB 쿼리는 한 번에 하나씩 실행하는 게 안전함
+5. **보험료 실제 고지 금액 확인**
+   - 현재 템플릿은 전달받은 금액으로 입력되어 있음
+   - 기억하는 합계와 300원 차이가 있을 수 있어 실제 고지서와 대조 필요
+   - 다르면 설정 화면에서 금액을 수정하거나 `PATCH /v1/fixed-expenses/:id` 사용
+6. **고정지출 결제 카드 연결**
+   - 현재 여섯 템플릿은 모두 `자동이체`/현금·계좌로 입력됨
+   - 실제 카드 결제 항목은 설정에서 카드를 지정해야 카드 실적·혜택에 반영됨
 
 ---
 

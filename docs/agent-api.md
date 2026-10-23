@@ -147,6 +147,8 @@ curl.exe https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/health
 | `cardId` | — | 해당 가구의 카드 ID. `cardName` 별칭 허용 |
 | `note` | J | 비고 |
 | `status` | — | `active` / `canceled` |
+| `fixedExpenseId` | — | 고정지출 템플릿에서 반영된 경우 해당 ID |
+| `fixedExpenseMonth` | — | 고정지출 대상 월 (`YYYY-MM`) |
 | `inputStatus` | K | 응답 전용. 현재는 `정상` |
 | `reviewAlerts` | L | `검토: 미래 날짜`, `검토: 중복 후보` 배열 |
 
@@ -362,23 +364,141 @@ curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/aggregates/cat
   -H "Authorization: Bearer $AGENT_API_KEY"
 ```
 
-## 6. 고정지출 목록
+## 6. 고정지출
 
-`recurring_expenses`의 활성 규칙 중 해당 월에 적용되는 항목을 반환합니다.
+`recurring_expenses`의 고정지출 템플릿과, 해당 월에 실제 거래로 반영된 상태를 다룹니다.
+
+**중요:** 템플릿은 실제 거래가 아니므로 반영 전에는 지출·카드 실적에 잡히지 않습니다. `apply`로 거래를 만들면 그때부터 일반 거래와 동일하게 카드 혜택·카테고리 집계에 반영됩니다.
+
+### 6-1. 목록
 
 ```bash
 curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses?month=2026-10" \
   -H "Authorization: Bearer $AGENT_API_KEY"
 ```
 
-각 항목의 `candidateStatus`:
+`includeInactive=true`를 붙이면 숨긴 템플릿도 함께 조회합니다.
 
-- `기록됨`: 같은 날짜·분류·금액·사용처·내용의 거래가 이미 있음
+```json
+{
+  "data": {
+    "month": "2026-10",
+    "total": 500000,
+    "count": 1,
+    "items": [
+      {
+        "id": "<fixed-expense-uuid>",
+        "active": true,
+        "name": "보험료",
+        "amount": 50000,
+        "dayOfMonth": 31,
+        "dayLabel": "말일",
+        "categoryMajor": "생활비",
+        "categoryMinor": "보험료",
+        "categoryGroup": "생활비",
+        "categoryId": "etc",
+        "cardId": null,
+        "paymentMethod": "자동이체",
+        "startMonth": "2026-10",
+        "endMonth": null,
+        "candidateDate": "2026-10-31",
+        "candidateStatus": "예정",
+        "candidateTransactionId": null,
+        "fixedExpenseMonth": null
+      }
+    ]
+  }
+}
+```
+
+`candidateStatus`:
+
+- `기록됨`: 해당 월에 연결된 활성 거래가 있음 (`candidateTransactionId` 확인)
 - `예정`: 후보일이 오늘(한국 시간) 이후
 - `반영 후보`: 후보일이 지났지만 거래가 없음
-- `기간·일자 확인`: 시작월/일자가 없음
+- `기간·일자 확인`: 반영일이 올바르지 않음
 
-현재 이 엔드포인트는 **조회 전용**입니다. 반복 규칙 생성/수정은 이후 확장 범위입니다.
+`dayOfMonth: 31`은 그 달의 **말일**을 뜻합니다. 2월이면 28/29일, 4월이면 30일로 계산됩니다.
+
+### 6-2. 생성
+
+```bash
+curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses" \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "보험료",
+    "amount": 50000,
+    "dayOfMonth": 31,
+    "categoryMajor": "생활비",
+    "categoryMinor": "보험료",
+    "paymentMethod": "자동이체",
+    "memo": "매월 자동이체",
+    "startMonth": "2026-10"
+  }'
+```
+
+- `name`은 필수이며 `merchant` 별칭도 허용합니다.
+- `amount`는 0 이상 정수, `dayOfMonth`는 1~31입니다. `"last"` 또는 `"말일"`도 31로 처리합니다.
+- `categoryMajor`/`categoryMinor`는 `ledger_categories`에 존재해야 합니다. 생략 시 `생활비`/`기타`입니다.
+- `cardId` 또는 `cardName`을 지정할 수 있습니다. `paymentMethod`에 카드 이름을 넣어도 카드로 인식합니다.
+- `startMonth`/`endMonth`는 `YYYY-MM`이며, 특정 기간에만 적용할 때 사용합니다.
+- 생성된 `id`는 응답의 `data.id`로 확인합니다.
+
+### 6-3. 조회·수정·숨기기
+
+```bash
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses/<ID>" \
+  -H "Authorization: Bearer $AGENT_API_KEY"
+
+curl -X PATCH "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses/<ID>" \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "amount": 50000, "dayOfMonth": 31 }'
+
+curl -X DELETE "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses/<ID>" \
+  -H "Authorization: Bearer $AGENT_API_KEY"
+```
+
+`DELETE`는 하드 삭제하지 않고 `active: false`로 숨깁니다. 이미 반영된 거래는 그대로 남습니다. 다시 사용하려면 `PATCH { "active": true }`를 보냅니다.
+
+### 6-4. 실제 거래로 반영
+
+```bash
+curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses/<ID>/apply" \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "month": "2026-10" }'
+```
+
+`apply`는 해당 월의 후보일(말일 포함)에 맞춰 거래를 만들고, `fixedExpenseId`/`fixedExpenseMonth`를 거래에 연결합니다. 같은 달에 다시 호출하면 새 거래를 만들지 않고 기존 거래를 반환합니다(`created: false`).
+
+실제 결제일이 템플릿의 반영일과 다르면 `date`를 함께 보냅니다. 예를 들어 보험료가 10월 30일에 결제됐다면:
+
+```bash
+curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses/<ID>/apply" \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "month": "2026-10", "date": "2026-10-30" }'
+```
+
+이미 반영된 달에 `date`·`amount`·`merchant`·`memo`·`note`·`cardId`·`paymentMethod`를 보내면 기존 거래를 **수정**합니다. 따라서 보험료 실제 결제일이 나중에 바뀌어도 같은 `apply` 호출로 날짜를 고칠 수 있습니다. 거래 ID를 직접 고치려면 `PATCH /v1/transactions/:id`를 사용해도 됩니다.
+
+`apply` 응답의 거래에는 다음 필드가 추가됩니다.
+
+- `fixedExpenseId`: 연결된 고정지출 ID
+- `fixedExpenseMonth`: 대상 월 (`YYYY-MM`)
+- `created`: 이번 호출에서 새로 만들었으면 `true`, 기존 거래를 반환/수정했으면 `false`
+
+### 6-5. 변경 이력
+
+```bash
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses/<ID>/history" \
+  -H "Authorization: Bearer $AGENT_API_KEY"
+```
+
+`ledger_history`에 기록된 고정지출 템플릿 생성·수정·숨김 이력을 최신순으로 반환합니다.
+
 
 ## 7. 메타/분류
 

@@ -97,6 +97,51 @@ export interface Transaction {
   note?: string
   status?: 'active' | 'canceled'
   source?: string
+  /** 고정지출 규칙에서 반영된 거래면 해당 규칙 ID */
+  fixedExpenseId?: string
+  /** 고정지출을 반영한 대상 월 (YYYY-MM) */
+  fixedExpenseMonth?: string
+}
+
+/**
+ * 고정지출 규칙. `transactions`에 실제 거래로 반영되기 전까지는
+ * 지출로 집계하지 않습니다.
+ */
+export interface FixedExpense {
+  id: string
+  name: string
+  amount: number
+  /** 앱에서 보여줄 카테고리 */
+  categoryId: CategoryId
+  /** 시트 분류 대분류. 예: 생활비, 투자납입, 대출상환 */
+  categoryMajor: string
+  /** 시트 분류 소분류. 예: 주거, IRP·연금, 차입원금상환 */
+  categoryMinor: string
+  /** 집계 위치. 예: 생활비, 투자납입, 대출상환 */
+  categoryGroup: string
+  /** null 이면 현금/계좌 */
+  cardId: string | null
+  paymentMethod?: string
+  /** 1~31. 31은 말일로 계산 */
+  dayOfMonth: number
+  /** YYYY-MM */
+  startMonth?: string
+  /** YYYY-MM */
+  endMonth?: string
+  memo?: string
+  note?: string
+  active: boolean
+}
+
+/** 특정 월에 고정지출이 실제 거래로 반영된 기록 */
+export interface FixedExpenseApplication {
+  fixedExpenseId: string
+  /** YYYY-MM */
+  month: string
+  transactionId: string
+  /** 실제 결제일 (YYYY-MM-DD) */
+  date: string
+  amount: number
 }
 
 export interface Settings {

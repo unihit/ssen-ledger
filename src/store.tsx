@@ -15,6 +15,7 @@ import { currentMonth } from './lib/date'
 import { useAuth } from './lib/auth'
 import {
   clearCloudTransactions,
+  deactivateFixedExpenseRemote,
   deleteCardRemote,
   deleteTransactionRemote,
   getHouseholdInitialized,
@@ -22,13 +23,23 @@ import {
   markHouseholdInitialized,
   replaceCloudState,
   saveCardRemote,
+  saveFixedExpenseRemote,
   saveSettingsRemote,
   saveTransactionRemote,
 } from './lib/cloud'
 import { supabase } from './lib/supabase'
-import type { AppState, Card, Settings, Transaction } from './types'
+import type {
+  AppState,
+  Card,
+  CategoryId,
+  FixedExpense,
+  FixedExpenseApplication,
+  Settings,
+  Transaction,
+} from './types'
 
 const STORAGE_KEY = 'ssen-ledger-state-v2'
+const FIXED_EXPENSE_STORAGE_KEY = 'ssen-ledger-fixed-expenses-v1'
 
 /** 예전 샘플 데이터에만 쓰던 카드 ID. 로컬 저장소에 남아 있으면 걷어냅니다. */
 const RETIRED_CARD_IDS = new Set([
@@ -45,6 +56,39 @@ function newId(): string {
     return crypto.randomUUID()
   }
   return `tx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+interface LocalFixedExpenseData {
+  fixedExpenses: FixedExpense[]
+  fixedExpenseApplications: FixedExpenseApplication[]
+}
+
+function fixedExpenseStorageKey(householdId: string | null): string {
+  return householdId
+    ? `${FIXED_EXPENSE_STORAGE_KEY}:${householdId}`
+    : FIXED_EXPENSE_STORAGE_KEY
+}
+
+function loadFixedExpenseData(
+  householdId: string | null,
+): LocalFixedExpenseData {
+  try {
+    const raw = localStorage.getItem(fixedExpenseStorageKey(householdId))
+    if (!raw) {
+      return { fixedExpenses: [], fixedExpenseApplications: [] }
+    }
+    const parsed = JSON.parse(raw) as Partial<LocalFixedExpenseData>
+    return {
+      fixedExpenses: Array.isArray(parsed.fixedExpenses)
+        ? parsed.fixedExpenses
+        : [],
+      fixedExpenseApplications: Array.isArray(parsed.fixedExpenseApplications)
+        ? parsed.fixedExpenseApplications
+        : [],
+    }
+  } catch {
+    return { fixedExpenses: [], fixedExpenseApplications: [] }
+  }
 }
 
 function normalize(state: AppState): AppState {
@@ -116,6 +160,8 @@ interface AppContextValue {
   cloudEnabled: boolean
   syncState: SyncState
   syncError: string
+  fixedExpenses: FixedExpense[]
+  fixedExpenseApplications: FixedExpenseApplication[]
   addTransaction: (input: Omit<Transaction, 'id'>) => void
   updateTransaction: (transaction: Transaction) => void
   deleteTransaction: (id: string) => void
@@ -124,6 +170,22 @@ interface AppContextValue {
   updateCard: (card: Card) => void
   deleteCard: (id: string) => void
   toggleCard: (id: string) => void
+  addFixedExpense: (fixedExpense: FixedExpense) => void
+  updateFixedExpense: (fixedExpense: FixedExpense) => void
+  deleteFixedExpense: (id: string) => void
+  applyFixedExpense: (
+    fixedExpense: FixedExpense,
+    input: {
+      date: string
+      amount?: number
+      merchant?: string
+      memo?: string
+      categoryId?: CategoryId
+      cardId?: string | null
+      paymentMethod?: string
+      excluded?: boolean
+    },
+  ) => { ok: boolean; message: string }
   resetToInitial: () => void
   clearAll: () => void
   exportJSON: () => string
@@ -143,6 +205,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     configured ? 'syncing' : 'local',
   )
   const [syncError, setSyncError] = useState('')
+  const [fixedExpenses, setFixedExpenses] = useState<FixedExpense[]>(
+    () => loadFixedExpenseData(householdId).fixedExpenses,
+  )
+  const [fixedExpenseApplications, setFixedExpenseApplications] = useState<
+    FixedExpenseApplication[]
+  >(() => loadFixedExpenseData(householdId).fixedExpenseApplications)
   const stateRef = useRef(state)
   const bulkSyncRef = useRef(false)
   const settingsDirtyRef = useRef(false)
@@ -160,6 +228,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // 저장 공간이 없어도 앱은 계속 동작한다.
     }
   }, [state, householdId])
+
+  useEffect(() => {
+    const local = loadFixedExpenseData(householdId)
+    setFixedExpenses(local.fixedExpenses)
+    setFixedExpenseApplications(local.fixedExpenseApplications)
+  }, [householdId])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        fixedExpenseStorageKey(householdId),
+        JSON.stringify({ fixedExpenses, fixedExpenseApplications }),
+      )
+    } catch {
+      // 저장 공간이 없어도 앱은 계속 동작한다.
+    }
+  }, [fixedExpenses, fixedExpenseApplications, householdId])
 
   useEffect(() => {
     if (!householdId) {
@@ -184,6 +269,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const cloud = await loadCloudState(householdId)
 
         if (cancelled) return
+
+        setFixedExpenses(cloud.fixedExpenses)
+        setFixedExpenseApplications(cloud.fixedExpenseApplications)
 
         if (
           !initialized &&
@@ -296,6 +384,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 ? { ...next.state, settings: current.settings }
                 : next.state,
             )
+            setFixedExpenses(next.fixedExpenses)
+            setFixedExpenseApplications(next.fixedExpenseApplications)
             setSyncState('synced')
             setSyncError('')
           })
@@ -324,6 +414,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           event: '*',
           schema: 'public',
           table: 'cards',
+          filter: `household_id=eq.${householdId}`,
+        },
+        refresh,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'recurring_expenses',
           filter: `household_id=eq.${householdId}`,
         },
         refresh,
@@ -386,6 +486,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ),
       }))
 
+      if (transaction.fixedExpenseId) {
+        setFixedExpenseApplications((current) =>
+          current.map((application) =>
+            application.transactionId === transaction.id
+              ? {
+                  ...application,
+                  date: transaction.date,
+                  amount: transaction.amount,
+                  month:
+                    transaction.fixedExpenseMonth ?? transaction.date.slice(0, 7),
+                }
+              : application,
+          ),
+        )
+      }
+
       const hid = householdId
       if (!hid) return
 
@@ -414,6 +530,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...current,
         transactions: current.transactions.filter((item) => item.id !== id),
       }))
+      setFixedExpenseApplications((current) =>
+        current.filter((application) => application.transactionId !== id),
+      )
 
       const hid = householdId
       if (!hid) return
@@ -553,6 +672,183 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [householdId, push],
   )
 
+  const addFixedExpense = useCallback(
+    (fixedExpense: FixedExpense) => {
+      setFixedExpenses((current) => [fixedExpense, ...current])
+
+      const hid = householdId
+      if (!hid) return
+
+      push(
+        () => saveFixedExpenseRemote(hid, fixedExpense),
+        () => {
+          setFixedExpenses((current) =>
+            current.filter((item) => item.id !== fixedExpense.id),
+          )
+        },
+      )
+    },
+    [householdId, push],
+  )
+
+  const updateFixedExpense = useCallback(
+    (fixedExpense: FixedExpense) => {
+      const previous = fixedExpenses.find((item) => item.id === fixedExpense.id)
+
+      setFixedExpenses((current) =>
+        current.map((item) =>
+          item.id === fixedExpense.id ? fixedExpense : item,
+        ),
+      )
+
+      const hid = householdId
+      if (!hid) return
+
+      push(
+        () => saveFixedExpenseRemote(hid, fixedExpense),
+        () => {
+          if (!previous) return
+          setFixedExpenses((current) =>
+            current.map((item) => (item.id === previous.id ? previous : item)),
+          )
+        },
+      )
+    },
+    [fixedExpenses, householdId, push],
+  )
+
+  const deleteFixedExpense = useCallback(
+    (id: string) => {
+      const previous = fixedExpenses.find((item) => item.id === id)
+      if (!previous) return
+
+      setFixedExpenses((current) =>
+        current.map((item) =>
+          item.id === id ? { ...item, active: false } : item,
+        ),
+      )
+
+      const hid = householdId
+      if (!hid) return
+
+      push(
+        () => deactivateFixedExpenseRemote(hid, id),
+        () => {
+          setFixedExpenses((current) =>
+            current.map((item) => (item.id === id ? previous : item)),
+          )
+        },
+      )
+    },
+    [fixedExpenses, householdId, push],
+  )
+
+  const applyFixedExpense = useCallback(
+    (
+      fixedExpense: FixedExpense,
+      input: {
+        date: string
+        amount?: number
+        merchant?: string
+        memo?: string
+        categoryId?: CategoryId
+        cardId?: string | null
+        paymentMethod?: string
+        excluded?: boolean
+      },
+    ) => {
+      const month = input.date.slice(0, 7)
+      if (
+        fixedExpenseApplications.some(
+          (application) =>
+            application.fixedExpenseId === fixedExpense.id &&
+            application.month === month,
+        )
+      ) {
+        return {
+          ok: false,
+          message: '이번 달에는 이미 반영된 고정지출이에요.',
+        }
+      }
+
+      const amount = Math.round(input.amount ?? fixedExpense.amount)
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return { ok: false, message: '반영할 금액을 확인해 주세요.' }
+      }
+
+      const transaction: Transaction = {
+        id: newId(),
+        date: input.date,
+        merchant: input.merchant?.trim() || fixedExpense.name,
+        amount,
+        categoryId: input.categoryId ?? fixedExpense.categoryId,
+        cardId:
+          input.cardId === undefined ? fixedExpense.cardId : input.cardId,
+        memo: input.memo ?? fixedExpense.memo ?? '',
+        excluded:
+          input.excluded ?? (fixedExpense.categoryMajor !== '생활비'),
+        categoryMajor: fixedExpense.categoryMajor,
+        categoryMinor: fixedExpense.categoryMinor,
+        categoryGroup: fixedExpense.categoryGroup,
+        correction: 0,
+        effectiveAmount: amount,
+        paymentMethod:
+          input.paymentMethod ??
+          fixedExpense.paymentMethod ??
+          (fixedExpense.cardId ? '신용카드' : '현금'),
+        note: fixedExpense.note,
+        status: 'active',
+        fixedExpenseId: fixedExpense.id,
+        fixedExpenseMonth: month,
+      }
+
+      const visible = fixedExpense.categoryMajor === '생활비'
+      if (visible) {
+        setState((current) => ({
+          ...current,
+          transactions: [transaction, ...current.transactions],
+        }))
+      }
+
+      setFixedExpenseApplications((current) => [
+        ...current,
+        {
+          fixedExpenseId: fixedExpense.id,
+          month,
+          transactionId: transaction.id,
+          date: transaction.date,
+          amount: transaction.amount,
+        },
+      ])
+
+      const hid = householdId
+      if (hid) {
+        push(
+          () => saveTransactionRemote(hid, transaction),
+          () => {
+            if (visible) {
+              setState((current) => ({
+                ...current,
+                transactions: current.transactions.filter(
+                  (item) => item.id !== transaction.id,
+                ),
+              }))
+            }
+            setFixedExpenseApplications((current) =>
+              current.filter(
+                (application) =>
+                  application.transactionId !== transaction.id,
+              ),
+            )
+          },
+        )
+      }
+
+      return { ok: true, message: '고정지출을 반영했어요.' }
+    },
+    [fixedExpenseApplications, householdId, push],
+  )
+
   const resetToInitial = useCallback(() => {
     const next = createInitialState()
     settingsVersionRef.current += 1
@@ -625,6 +921,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       cloudEnabled: Boolean(configured && householdId && cloudReady),
       syncState,
       syncError,
+      fixedExpenses,
+      fixedExpenseApplications,
       addTransaction,
       updateTransaction,
       deleteTransaction,
@@ -633,6 +931,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateCard,
       deleteCard,
       toggleCard,
+      addFixedExpense,
+      updateFixedExpense,
+      deleteFixedExpense,
+      applyFixedExpense,
       resetToInitial,
       clearAll,
       exportJSON,
@@ -646,6 +948,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       cloudReady,
       syncState,
       syncError,
+      fixedExpenses,
+      fixedExpenseApplications,
       addTransaction,
       updateTransaction,
       deleteTransaction,
@@ -654,6 +958,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateCard,
       deleteCard,
       toggleCard,
+      addFixedExpense,
+      updateFixedExpense,
+      deleteFixedExpense,
+      applyFixedExpense,
       resetToInitial,
       clearAll,
       exportJSON,

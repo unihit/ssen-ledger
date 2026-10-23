@@ -50,7 +50,9 @@ alter table public.transactions
   add column if not exists cancel_reason text,
   add column if not exists source text not null default 'app',
   add column if not exists created_by text not null default 'app',
-  add column if not exists updated_by text not null default 'app';
+  add column if not exists updated_by text not null default 'app',
+  add column if not exists fixed_expense_id uuid,
+  add column if not exists fixed_expense_month date;
 
 alter table public.transactions
   add column if not exists effective_amount integer generated always as (amount + correction) stored;
@@ -90,6 +92,14 @@ create index if not exists transactions_household_status_date_idx
 
 create index if not exists transactions_household_sheet_category_idx
   on public.transactions (household_id, category_major, category_minor);
+
+-- 고정지출 한 건은 한 달에 한 번만 활성 거래로 남깁니다.
+-- 취소된 거래는 인덱스 대상에서 빠지므로, 다시 반영할 수 있습니다.
+create unique index if not exists transactions_fixed_expense_month_uidx
+  on public.transactions (household_id, fixed_expense_id, fixed_expense_month)
+  where fixed_expense_id is not null
+    and fixed_expense_month is not null
+    and status = 'active';
 
 -- 기존 앱 거래를 시트 구조로 백필합니다.
 update public.transactions
@@ -245,6 +255,8 @@ create table if not exists public.recurring_expenses (
   category_major text not null,
   category_minor text not null,
   category_group text not null,
+  category_id text,
+  card_id text,
   amount integer not null check (amount >= 0),
   merchant text,
   memo text,
@@ -259,8 +271,17 @@ create table if not exists public.recurring_expenses (
   check (end_month is null or extract(day from end_month) = 1)
 );
 
+-- 이전 버전의 recurring_expenses 테이블을 위한 보강
+alter table public.recurring_expenses
+  add column if not exists category_id text,
+  add column if not exists card_id text;
+
 create index if not exists recurring_expenses_household_active_idx
   on public.recurring_expenses (household_id, active, start_month, end_month);
+
+create index if not exists recurring_expenses_card_idx
+  on public.recurring_expenses (household_id, card_id)
+  where card_id is not null;
 
 alter table public.recurring_expenses enable row level security;
 
@@ -320,21 +341,23 @@ begin
     v_entity_type := 'transaction';
   elsif tg_table_name = 'balance_snapshots' then
     v_entity_type := 'balance_snapshot';
+  elsif tg_table_name = 'recurring_expenses' then
+    v_entity_type := 'recurring_expense';
   else
     raise exception '지원하지 않는 이력 테이블입니다: %', tg_table_name;
   end if;
 
   if tg_op = 'DELETE' then
     v_household_id := old.household_id;
-    if v_entity_type = 'transaction' then
-      v_entity_id := old.id;
+    if v_entity_type in ('transaction', 'recurring_expense') then
+      v_entity_id := old.id::text;
     else
       v_entity_id := to_char(old.month, 'YYYY-MM');
     end if;
   else
     v_household_id := new.household_id;
-    if v_entity_type = 'transaction' then
-      v_entity_id := new.id;
+    if v_entity_type in ('transaction', 'recurring_expense') then
+      v_entity_id := new.id::text;
     else
       v_entity_id := to_char(new.month, 'YYYY-MM');
     end if;
@@ -390,6 +413,11 @@ create trigger balance_snapshots_log_ledger_history
 after insert or update or delete on public.balance_snapshots
 for each row execute function public.log_ledger_history();
 
+drop trigger if exists recurring_expenses_log_ledger_history on public.recurring_expenses;
+create trigger recurring_expenses_log_ledger_history
+after insert or update or delete on public.recurring_expenses
+for each row execute function public.log_ledger_history();
+
 -- ---------------------------------------------------------------------------
 -- 6. 기존 전체 교체 RPC를 소프트 취소 방식으로 변경
 -- ---------------------------------------------------------------------------
@@ -428,7 +456,7 @@ begin
   where household_id = p_household_id
     and status = 'canceled';
 
-  -- API 거래가 참조하는 카드는 남기고, 참조가 없는 카드만 삭제합니다.
+  -- API 거래나 고정지출이 참조하는 카드는 남기고, 참조가 없는 카드만 삭제합니다.
   delete from public.cards c
   where c.household_id = p_household_id
     and not exists (
@@ -436,6 +464,12 @@ begin
       from public.transactions t
       where t.household_id = c.household_id
         and t.card_id = c.id
+    )
+    and not exists (
+      select 1
+      from public.recurring_expenses r
+      where r.household_id = c.household_id
+        and r.card_id = c.id
     );
 
   insert into public.cards (
@@ -579,10 +613,10 @@ grant select on table
   public.households,
   public.ledger_categories,
   public.cards,
-  public.ledger_history,
-  public.recurring_expenses
+  public.ledger_history
 to service_role;
 grant select, insert, update on table
+  public.recurring_expenses,
   public.transactions,
   public.balance_snapshots
 to service_role;

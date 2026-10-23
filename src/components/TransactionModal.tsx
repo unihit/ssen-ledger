@@ -1,10 +1,11 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { CATEGORIES } from '../data/categories'
 import { recommendCards } from '../lib/benefits'
+import { fixedExpenseDueDate } from '../lib/fixedExpenses'
 import { todayISO } from '../lib/date'
 import { won } from '../lib/format'
 import { useApp } from '../store'
-import type { CategoryId, Transaction } from '../types'
+import type { CategoryId, FixedExpense, Transaction } from '../types'
 import { Icon } from './Icon'
 import { Modal } from './ui'
 
@@ -16,21 +17,50 @@ function defaultDateFor(month: string): string {
 
 export function TransactionModal({
   initial,
+  fixedExpense,
   month,
   onClose,
 }: {
   initial?: Transaction
+  fixedExpense?: FixedExpense
   month: string
   onClose: () => void
 }) {
-  const { state, addTransaction, updateTransaction, deleteTransaction, setMonth } = useApp()
-  const [amount, setAmount] = useState(initial ? String(initial.amount) : '')
-  const [merchant, setMerchant] = useState(initial?.merchant ?? '')
-  const [date, setDate] = useState(initial?.date ?? defaultDateFor(month))
-  const [categoryId, setCategoryId] = useState<CategoryId>(initial?.categoryId ?? 'food')
-  const [cardId, setCardId] = useState<string | null>(initial?.cardId ?? null)
-  const [memo, setMemo] = useState(initial?.memo ?? '')
-  const [excluded, setExcluded] = useState(initial?.excluded ?? false)
+  const {
+    state,
+    addTransaction,
+    updateTransaction,
+    applyFixedExpense,
+    deleteTransaction,
+    setMonth,
+  } = useApp()
+  const [amount, setAmount] = useState(
+    initial
+      ? String(initial.amount)
+      : fixedExpense
+        ? String(fixedExpense.amount)
+        : '',
+  )
+  const [merchant, setMerchant] = useState(
+    initial?.merchant ?? fixedExpense?.name ?? '',
+  )
+  const [date, setDate] = useState(
+    initial?.date ??
+      (fixedExpense
+        ? fixedExpenseDueDate(fixedExpense, month)
+        : defaultDateFor(month)),
+  )
+  const [categoryId, setCategoryId] = useState<CategoryId>(
+    initial?.categoryId ?? fixedExpense?.categoryId ?? 'food',
+  )
+  const [cardId, setCardId] = useState<string | null>(
+    initial?.cardId ?? fixedExpense?.cardId ?? null,
+  )
+  const [memo, setMemo] = useState(initial?.memo ?? fixedExpense?.memo ?? '')
+  const [excluded, setExcluded] = useState(
+    initial?.excluded ??
+      (fixedExpense ? fixedExpense.categoryMajor !== '생활비' : false),
+  )
   const [error, setError] = useState('')
 
   const numericAmount = Number(amount.replace(/[^\d]/g, '')) || 0
@@ -64,6 +94,26 @@ export function TransactionModal({
       memo: memo.trim(),
       excluded,
     }
+
+    if (fixedExpense) {
+      const result = applyFixedExpense(fixedExpense, {
+        date,
+        amount: numericAmount,
+        merchant: merchant.trim() || fixedExpense.name,
+        memo: memo.trim(),
+        categoryId,
+        cardId,
+        excluded,
+      })
+      if (!result.ok) {
+        setError(result.message)
+        return
+      }
+      setMonth(date.slice(0, 7))
+      onClose()
+      return
+    }
+
     if (initial) {
       const preservedSheetFields =
         initial.categoryId === categoryId
@@ -77,8 +127,17 @@ export function TransactionModal({
                 initial.cardId === cardId ? initial.paymentMethod : undefined,
             }
           : {}
+      const preservedFixedFields = {
+        fixedExpenseId: initial.fixedExpenseId,
+        fixedExpenseMonth: initial.fixedExpenseMonth,
+      }
 
-      updateTransaction({ ...payload, ...preservedSheetFields, id: initial.id })
+      updateTransaction({
+        ...payload,
+        ...preservedSheetFields,
+        ...preservedFixedFields,
+        id: initial.id,
+      })
     } else {
       addTransaction(payload)
     }
@@ -96,8 +155,18 @@ export function TransactionModal({
 
   return (
     <Modal
-      title={initial ? '결제 내역 수정' : '결제 추가'}
-      subtitle="카드 실적과 혜택이 자동으로 다시 계산돼요."
+      title={
+        fixedExpense
+          ? '고정지출 반영'
+          : initial
+            ? '결제 내역 수정'
+            : '결제 추가'
+      }
+      subtitle={
+        fixedExpense
+          ? '내용을 확인한 뒤 반영하면 실제 거래로 기록돼요.'
+          : '카드 실적과 혜택이 자동으로 다시 계산돼요.'
+      }
       onClose={onClose}
       footer={
         <div className="modal__actions">
@@ -114,7 +183,7 @@ export function TransactionModal({
               취소
             </button>
             <button type="submit" form="transaction-form" className="btn btn--primary">
-              {initial ? '수정 완료' : '저장'}
+              {fixedExpense ? '반영 완료' : initial ? '수정 완료' : '저장'}
             </button>
           </div>
         </div>
@@ -240,7 +309,7 @@ export function TransactionModal({
               id="tx-date"
               type="date"
               value={date}
-              max={todayISO()}
+              max={fixedExpense ? undefined : todayISO()}
               onChange={(event) => setDate(event.target.value)}
             />
           </div>

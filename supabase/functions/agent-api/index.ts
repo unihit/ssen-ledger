@@ -819,6 +819,10 @@ function toApiTransaction(row: Record<string, unknown>) {
     source: row.source ?? null,
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
+    fixedExpenseId: row.fixed_expense_id ?? null,
+    fixedExpenseMonth: row.fixed_expense_month
+      ? String(row.fixed_expense_month).slice(0, 7)
+      : null,
     inputStatus: row.input_status ?? '정상',
     reviewAlert: row.review_alert ?? null,
     reviewAlerts: Array.isArray(row.review_alerts) ? row.review_alerts : [],
@@ -1485,9 +1489,313 @@ async function monthlyAggregate(householdId: string, monthInput: string) {
   }
 }
 
-async function fixedExpenses(householdId: string, monthInput: string) {
+interface NormalizedFixedExpense {
+  name: string
+  amount: number
+  dayOfMonth: number
+  categoryMajor: string
+  categoryMinor: string
+  categoryId: string | null
+  cardId: string | null
+  paymentMethod: string | null
+  memo: string
+  note: string
+  startMonth: string | null
+  endMonth: string | null
+  active: boolean
+}
+
+function fixedDayLabel(day: number): string {
+  return day >= 31 ? '말일' : `${day}일`
+}
+
+function fixedExpenseToRaw(row: Record<string, unknown>) {
+  return {
+    name: row.merchant ?? '',
+    amount: Number(row.amount) || 0,
+    dayOfMonth: Number(row.day_of_month) || 1,
+    categoryMajor: row.category_major ?? '생활비',
+    categoryMinor: row.category_minor ?? '기타',
+    categoryId: row.category_id ?? null,
+    cardId: row.card_id ?? null,
+    paymentMethod: row.payment_method ?? null,
+    memo: row.memo ?? '',
+    note: row.note ?? '',
+    startMonth: row.start_month
+      ? String(row.start_month).slice(0, 7)
+      : null,
+    endMonth: row.end_month ? String(row.end_month).slice(0, 7) : null,
+    active: row.active !== false,
+  }
+}
+
+function validateFixedExpenseInput(
+  raw: Record<string, unknown>,
+): NormalizedFixedExpense {
+  const name = String(raw.name ?? raw.merchant ?? '').trim()
+  if (!name) {
+    throw new ApiError(400, 'VALIDATION_ERROR', '고정지출 이름을 입력해 주세요.', {
+      name: '필수',
+    })
+  }
+
+  const amount = Number(raw.amount)
+  if (!Number.isInteger(amount) || amount < 0) {
+    throw new ApiError(400, 'VALIDATION_ERROR', '금액은 0 이상의 정수여야 합니다.', {
+      amount: '0 이상의 정수',
+    })
+  }
+
+  const dayRaw = raw.dayOfMonth ?? raw.day ?? 1
+  const dayOfMonth =
+    dayRaw === 'last' || dayRaw === '말일'
+      ? 31
+      : Number(dayRaw)
+  if (!Number.isInteger(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31) {
+    throw new ApiError(400, 'VALIDATION_ERROR', '반영일은 1~31 사이여야 합니다.', {
+      dayOfMonth: '1~31 (31=말일)',
+    })
+  }
+
+  const categoryMajor = String(raw.categoryMajor ?? '생활비').trim()
+  const categoryMinor = String(raw.categoryMinor ?? '기타').trim()
+  if (!TRANSACTION_TYPES.includes(categoryMajor as (typeof TRANSACTION_TYPES)[number])) {
+    throw new ApiError(400, 'VALIDATION_ERROR', '거래유형이 올바르지 않습니다.', {
+      categoryMajor: TRANSACTION_TYPES.join(', '),
+    })
+  }
+  if (!categoryMinor) {
+    throw new ApiError(400, 'VALIDATION_ERROR', '분류 소분류를 입력해 주세요.', {
+      categoryMinor: '필수',
+    })
+  }
+
+  const startMonthRaw = raw.startMonth
+  const endMonthRaw = raw.endMonth
+  const startMonth =
+    startMonthRaw === undefined || startMonthRaw === null || startMonthRaw === ''
+      ? null
+      : normalizeMonth(String(startMonthRaw), 'startMonth')
+  const endMonth =
+    endMonthRaw === undefined || endMonthRaw === null || endMonthRaw === ''
+      ? null
+      : normalizeMonth(String(endMonthRaw), 'endMonth')
+  if (startMonth && endMonth && startMonth > endMonth) {
+    throw new ApiError(400, 'VALIDATION_ERROR', '시작월은 종료월보다 늦을 수 없습니다.')
+  }
+
+  return {
+    name,
+    amount,
+    dayOfMonth,
+    categoryMajor,
+    categoryMinor,
+    categoryId: raw.categoryId == null ? null : String(raw.categoryId),
+    cardId: raw.cardId == null ? null : String(raw.cardId),
+    paymentMethod:
+      raw.paymentMethod == null ? null : String(raw.paymentMethod),
+    memo: raw.memo == null ? '' : String(raw.memo),
+    note: raw.note == null ? '' : String(raw.note),
+    startMonth,
+    endMonth,
+    active: raw.active === undefined ? true : Boolean(raw.active),
+  }
+}
+
+async function resolveFixedExpenseCard(
+  householdId: string,
+  input: NormalizedFixedExpense,
+) {
+  let cardId = input.cardId
+  let paymentMethod = input.paymentMethod
+
+  if (
+    paymentMethod &&
+    !PAYMENT_METHODS.includes(paymentMethod as (typeof PAYMENT_METHODS)[number])
+  ) {
+    const card = await findCard(householdId, paymentMethod, 'paymentMethod')
+    cardId = card?.id ?? cardId
+    paymentMethod = card
+      ? card.kind === 'check'
+        ? '체크카드'
+        : '신용카드'
+      : paymentMethod
+  }
+
+  const card = cardId
+    ? await findCard(householdId, cardId, 'cardId')
+    : null
+  return { cardId: card?.id ?? null, paymentMethod }
+}
+
+async function buildFixedExpensePayload(
+  householdId: string,
+  input: NormalizedFixedExpense,
+) {
+  const category = await resolveCategory(
+    input.categoryMajor,
+    input.categoryMinor,
+  )
+  const { cardId, paymentMethod } = await resolveFixedExpenseCard(
+    householdId,
+    input,
+  )
+
+  return {
+    household_id: householdId,
+    active: input.active,
+    start_month: input.startMonth ? `${input.startMonth}-01` : null,
+    end_month: input.endMonth ? `${input.endMonth}-01` : null,
+    day_of_month: input.dayOfMonth,
+    category_major: input.categoryMajor,
+    category_minor: input.categoryMinor,
+    category_group: category.category_group,
+    category_id: input.categoryId || appCategoryId(input.categoryMajor, input.categoryMinor),
+    amount: input.amount,
+    merchant: input.name,
+    memo: input.memo || null,
+    payment_method: paymentMethod,
+    note: input.note || null,
+    card_id: cardId,
+    updated_by: 'muse',
+  }
+}
+
+function toApiFixedExpense(row: Record<string, unknown>) {
+  const dayOfMonth = Number(row.day_of_month) || 1
+  return {
+    id: row.id,
+    active: Boolean(row.active),
+    name: row.merchant ?? '',
+    amount: Number(row.amount) || 0,
+    dayOfMonth,
+    dayLabel: fixedDayLabel(dayOfMonth),
+    categoryMajor: row.category_major ?? '생활비',
+    categoryMinor: row.category_minor ?? '기타',
+    categoryGroup: row.category_group ?? '생활비',
+    categoryId:
+      row.category_id ??
+      appCategoryId(
+        String(row.category_major ?? '생활비'),
+        String(row.category_minor ?? '기타'),
+      ),
+    cardId: row.card_id ?? null,
+    paymentMethod: row.payment_method ?? null,
+    memo: row.memo ?? '',
+    note: row.note ?? '',
+    startMonth: row.start_month ? String(row.start_month).slice(0, 7) : null,
+    endMonth: row.end_month ? String(row.end_month).slice(0, 7) : null,
+    createdAt: row.created_at ?? null,
+    updatedAt: row.updated_at ?? null,
+  }
+}
+
+async function fetchFixedExpense(householdId: string, id: string) {
+  if (!UUID_RE.test(id)) {
+    throw new ApiError(400, 'VALIDATION_ERROR', '고정지출 ID가 올바르지 않습니다.')
+  }
+  const { data, error } = await db()
+    .from('recurring_expenses')
+    .select('*')
+    .eq('household_id', householdId)
+    .eq('id', id)
+    .maybeSingle()
+
+  if (error) throw dbError(error)
+  if (!data) {
+    throw new ApiError(404, 'NOT_FOUND', '고정지출을 찾을 수 없습니다.')
+  }
+  return data as Record<string, unknown>
+}
+
+async function createFixedExpense(req: Request, householdId: string) {
+  const body = normalizeAliases(await readBody(req))
+  const input = validateFixedExpenseInput(body)
+  const payload = await buildFixedExpensePayload(householdId, input)
+  const id = crypto.randomUUID()
+
+  const { data, error } = await db()
+    .from('recurring_expenses')
+    .insert({ ...payload, id, created_by: 'muse' })
+    .select('*')
+    .single()
+
+  if (error) throw dbError(error)
+  return dataResponse(toApiFixedExpense(data as Record<string, unknown>), 201)
+}
+
+async function updateFixedExpense(
+  req: Request,
+  householdId: string,
+  id: string,
+) {
+  const existing = await fetchFixedExpense(householdId, id)
+  const body = normalizeAliases(await readBody(req))
+  const input = validateFixedExpenseInput({
+    ...fixedExpenseToRaw(existing),
+    ...body,
+  })
+  const payload = await buildFixedExpensePayload(householdId, input)
+
+  const { data, error } = await db()
+    .from('recurring_expenses')
+    .update(payload)
+    .eq('household_id', householdId)
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) throw dbError(error)
+  return dataResponse(toApiFixedExpense(data as Record<string, unknown>))
+}
+
+async function deleteFixedExpense(householdId: string, id: string) {
+  await fetchFixedExpense(householdId, id)
+  const { data, error } = await db()
+    .from('recurring_expenses')
+    .update({ active: false, updated_by: 'muse' })
+    .eq('household_id', householdId)
+    .eq('id', id)
+    .select('*')
+    .single()
+
+  if (error) throw dbError(error)
+  return dataResponse(toApiFixedExpense(data as Record<string, unknown>))
+}
+
+async function fixedExpenseHistory(householdId: string, id: string) {
+  await fetchFixedExpense(householdId, id)
+  const { data, error } = await db()
+    .from('ledger_history')
+    .select('*')
+    .eq('household_id', householdId)
+    .eq('entity_type', 'recurring_expense')
+    .eq('entity_id', id)
+    .order('created_at', { ascending: false })
+
+  if (error) throw dbError(error)
+  return dataResponse(data ?? [])
+}
+
+function fixedCandidateDate(
+  row: Record<string, unknown>,
+  month: string,
+  lastDay: number,
+) {
+  const day = Number(row.day_of_month)
+  if (!Number.isInteger(day) || day < 1) return null
+  const actualDay = day >= 31 ? lastDay : Math.min(day, lastDay)
+  return `${month}-${String(actualDay).padStart(2, '0')}`
+}
+
+async function fixedExpenses(
+  householdId: string,
+  monthInput: string,
+  includeInactive = false,
+) {
   const month = normalizeMonth(monthInput)
   const range = monthRange(month)
+  const monthDate = `${month}-01`
 
   const { data: recurringData, error: recurringError } = await db()
     .from('recurring_expenses')
@@ -1507,14 +1815,36 @@ async function fixedExpenses(householdId: string, monthInput: string) {
 
   if (transactionError) throw dbError(transactionError)
 
-  const transactions = (transactionData ?? []) as Record<string, unknown>[]
-  const today = todayKst()
-  const [year, monthNumber] = month.split('-').map(Number)
-  const lastDay = daysInMonth(year, monthNumber)
+  const { data: linkedData, error: linkedError } = await db()
+    .from('transactions')
+    .select('*')
+    .eq('household_id', householdId)
+    .eq('status', 'active')
+    .eq('fixed_expense_month', monthDate)
 
+  if (linkedError) throw dbError(linkedError)
+
+  const transactionMap = new Map<string, Record<string, unknown>>()
+  for (const transaction of [
+    ...((transactionData ?? []) as Record<string, unknown>[]),
+    ...((linkedData ?? []) as Record<string, unknown>[]),
+  ]) {
+    transactionMap.set(String(transaction.id), transaction)
+  }
+  const transactions = [...transactionMap.values()]
+  const linkedByFixedExpense = new Map<string, Record<string, unknown>>()
+  for (const transaction of transactions) {
+    if (!transaction.fixed_expense_id) continue
+    const key = `${transaction.fixed_expense_id}:${month}`
+    if (!linkedByFixedExpense.has(key)) {
+      linkedByFixedExpense.set(key, transaction)
+    }
+  }
+
+  const today = todayKst()
   const items = ((recurringData ?? []) as Record<string, unknown>[])
     .filter((row) => {
-      if (!row.active) return false
+      if (!includeInactive && !row.active) return false
       const start = row.start_month ? String(row.start_month).slice(0, 7) : null
       const end = row.end_month ? String(row.end_month).slice(0, 7) : null
       if (start && month < start) return false
@@ -1522,56 +1852,248 @@ async function fixedExpenses(householdId: string, monthInput: string) {
       return true
     })
     .map((row) => {
-      const day = Number(row.day_of_month)
-      const hasStartMonth = Boolean(row.start_month)
-      const candidateDate =
-        hasStartMonth && Number.isInteger(day) && day >= 1
-          ? `${month}-${String(Math.min(day, lastDay)).padStart(2, '0')}`
-          : null
-
+      const base = toApiFixedExpense(row)
+      const candidateDate = fixedCandidateDate(
+        row,
+        month,
+        range.lastDay,
+      )
+      const linked = linkedByFixedExpense.get(`${row.id}:${month}`)
+      const fuzzy = candidateDate
+        ? transactions.find(
+            (transaction) =>
+              !transaction.fixed_expense_id &&
+              transaction.date === candidateDate &&
+              transaction.category_major === row.category_major &&
+              transaction.category_minor === row.category_minor &&
+              effectiveAmount(transaction) === Number(row.amount) &&
+              (transaction.merchant ?? '') === (row.merchant ?? '') &&
+              (transaction.memo ?? '') === (row.memo ?? ''),
+          )
+        : undefined
+      const matched = linked ?? fuzzy
       let candidateStatus = '기간·일자 확인'
       if (candidateDate) {
-        const recorded = transactions.some((transaction) => {
-          return (
-            transaction.date === candidateDate &&
-            transaction.category_major === row.category_major &&
-            transaction.category_minor === row.category_minor &&
-            effectiveAmount(transaction) === Number(row.amount) &&
-            (transaction.merchant ?? '') === (row.merchant ?? '') &&
-            (transaction.memo ?? '') === (row.memo ?? '')
-          )
-        })
-
-        if (recorded) candidateStatus = '기록됨'
+        if (matched) candidateStatus = '기록됨'
         else if (candidateDate > today) candidateStatus = '예정'
         else candidateStatus = '반영 후보'
       }
 
       return {
-        id: row.id,
-        active: Boolean(row.active),
-        startMonth: row.start_month ? String(row.start_month).slice(0, 7) : null,
-        endMonth: row.end_month ? String(row.end_month).slice(0, 7) : null,
-        dayOfMonth: day,
-        categoryMajor: row.category_major,
-        categoryMinor: row.category_minor,
-        categoryGroup: row.category_group,
-        amount: Number(row.amount) || 0,
-        merchant: row.merchant ?? '',
-        memo: row.memo ?? '',
-        paymentMethod: row.payment_method ?? null,
-        note: row.note ?? '',
-        candidateDate,
+        ...base,
+        candidateDate: matched
+          ? String(matched.date)
+          : candidateDate,
         candidateStatus,
+        candidateTransactionId: matched?.id ?? null,
+        fixedExpenseMonth: matched?.fixed_expense_month
+          ? String(matched.fixed_expense_month).slice(0, 7)
+          : null,
       }
     })
 
   return {
     month,
-    total: items.reduce((sum, item) => sum + item.amount, 0),
+    total: items
+      .filter((item) => item.active)
+      .reduce((sum, item) => sum + item.amount, 0),
     count: items.length,
     items,
   }
+}
+
+async function applyFixedExpense(
+  req: Request,
+  householdId: string,
+  id: string,
+) {
+  const existingFixed = await fetchFixedExpense(householdId, id)
+  if (!existingFixed.active) {
+    throw new ApiError(409, 'CONFLICT', '비활성화된 고정지출에는 반영할 수 없습니다.')
+  }
+
+  const body = normalizeAliases(await readBody(req))
+  const requestedMonth =
+    body.month === undefined || body.month === null || body.month === ''
+      ? null
+      : normalizeMonth(String(body.month))
+
+  let date: string
+  if (body.date !== undefined && body.date !== null && body.date !== '') {
+    if (!isDateString(String(body.date))) {
+      throw new ApiError(400, 'VALIDATION_ERROR', '날짜 형식이 올바르지 않습니다.', {
+        date: 'YYYY-MM-DD',
+      })
+    }
+    date = String(body.date)
+    const dateMonth = date.slice(0, 7)
+    if (requestedMonth && requestedMonth !== dateMonth) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'month와 date의 월이 일치하지 않습니다.',
+      )
+    }
+  } else {
+    const month = requestedMonth ?? todayKst().slice(0, 7)
+    const lastDay = monthRange(month).lastDay
+    date = fixedCandidateDate(existingFixed, month, lastDay) as string
+  }
+
+  const month = date.slice(0, 7)
+  const startMonth = existingFixed.start_month
+    ? String(existingFixed.start_month).slice(0, 7)
+    : null
+  const endMonth = existingFixed.end_month
+    ? String(existingFixed.end_month).slice(0, 7)
+    : null
+  if (startMonth && month < startMonth) {
+    throw new ApiError(400, 'VALIDATION_ERROR', '시작월보다 이전 달에는 반영할 수 없습니다.')
+  }
+  if (endMonth && month > endMonth) {
+    throw new ApiError(400, 'VALIDATION_ERROR', '종료월보다 이후 달에는 반영할 수 없습니다.')
+  }
+
+  const { data: existingData, error: existingError } = await db()
+    .from('transactions')
+    .select('*')
+    .eq('household_id', householdId)
+    .eq('fixed_expense_id', id)
+    .eq('fixed_expense_month', `${month}-01`)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  if (existingError) throw dbError(existingError)
+
+  if (existingData) {
+    const existing = existingData as Record<string, unknown>
+    const hasOverride =
+      body.date !== undefined ||
+      body.amount !== undefined ||
+      body.merchant !== undefined ||
+      body.memo !== undefined ||
+      body.note !== undefined ||
+      body.cardId !== undefined ||
+      body.paymentMethod !== undefined
+
+    if (!hasOverride) {
+      return dataResponse({
+        ...toApiTransaction(existing),
+        created: false,
+      })
+    }
+
+    const mergedInput = normalizeAliases({
+      ...rowToRaw(existing),
+      date,
+      amount: body.amount ?? existing.amount,
+      merchant: body.merchant ?? existing.merchant,
+      memo: body.memo ?? existing.memo,
+      note: body.note ?? existing.note,
+      cardId: body.cardId !== undefined ? body.cardId : existing.card_id,
+      paymentMethod:
+        body.paymentMethod !== undefined
+          ? body.paymentMethod
+          : existing.payment_method,
+    })
+    const input = validateTransactionInput(mergedInput)
+    const category = await resolveCategory(
+      input.categoryMajor,
+      input.categoryMinor,
+    )
+    const card = await resolveCardAndPayment(householdId, input)
+    const { data, error } = await db()
+      .from('transactions')
+      .update({
+        date: input.date,
+        merchant: input.merchant,
+        amount: input.amount,
+        category_id: appCategoryId(input.categoryMajor, input.categoryMinor),
+        card_id: card.cardId,
+        memo: input.memo,
+        note: input.note,
+        payment_method: card.paymentMethod,
+        category_group: category.category_group,
+        source: 'muse',
+        updated_by: 'muse',
+      })
+      .eq('household_id', householdId)
+      .eq('id', existing.id)
+      .select('*')
+      .single()
+    if (error) throw dbError(error)
+    return dataResponse({
+      ...toApiTransaction(data as Record<string, unknown>),
+      created: false,
+    })
+  }
+
+  const amount = Number(body.amount ?? existingFixed.amount)
+  if (!Number.isInteger(amount) || amount < 0) {
+    throw new ApiError(400, 'VALIDATION_ERROR', '금액은 0 이상의 정수여야 합니다.')
+  }
+
+  const templateInput = {
+    date,
+    merchant: String(body.merchant ?? existingFixed.merchant ?? existingFixed.name ?? ''),
+    amount,
+    categoryMajor: String(existingFixed.category_major ?? '생활비'),
+    categoryMinor: String(existingFixed.category_minor ?? '기타'),
+    correction: 0,
+    memo: String(body.memo ?? existingFixed.memo ?? ''),
+    note: String(body.note ?? existingFixed.note ?? ''),
+    paymentMethod:
+      body.paymentMethod !== undefined
+        ? body.paymentMethod
+        : existingFixed.payment_method,
+    cardId:
+      body.cardId !== undefined ? body.cardId : existingFixed.card_id,
+  }
+  const input = validateTransactionInput(templateInput)
+  const category = await resolveCategory(
+    input.categoryMajor,
+    input.categoryMinor,
+  )
+  const card = await resolveCardAndPayment(householdId, input)
+
+  const { data, error } = await db()
+    .from('transactions')
+    .insert({
+      household_id: householdId,
+      id: crypto.randomUUID(),
+      date: input.date,
+      merchant: input.merchant,
+      amount: input.amount,
+      category_id:
+        existingFixed.category_id ??
+        appCategoryId(input.categoryMajor, input.categoryMinor),
+      card_id: card.cardId,
+      memo: input.memo,
+      excluded: input.categoryMajor !== '생활비',
+      category_major: input.categoryMajor,
+      category_minor: input.categoryMinor,
+      category_group: category.category_group,
+      correction: 0,
+      payment_method: card.paymentMethod,
+      note: input.note,
+      status: 'active',
+      fixed_expense_id: id,
+      fixed_expense_month: `${month}-01`,
+      source: 'muse',
+      created_by: 'muse',
+      updated_by: 'muse',
+    })
+    .select('*')
+    .single()
+
+  if (error) throw dbError(error)
+  return dataResponse(
+    {
+      ...toApiTransaction(data as Record<string, unknown>),
+      created: true,
+    },
+    201,
+  )
 }
 
 async function meta(householdId: string) {
@@ -1617,7 +2139,10 @@ async function meta(householdId: string) {
       balance: 'GET/PUT /v1/balance-snapshots/:month',
       monthly: 'GET /v1/aggregates/monthly?month=YYYY-MM',
       categoriesAggregate: 'GET /v1/aggregates/categories?month=YYYY-MM',
-      fixedExpenses: 'GET /v1/fixed-expenses?month=YYYY-MM',
+      fixedExpenses: 'GET/POST /v1/fixed-expenses?month=YYYY-MM',
+      fixedExpense: 'GET/PATCH/DELETE /v1/fixed-expenses/:id',
+      fixedExpenseApply: 'POST /v1/fixed-expenses/:id/apply',
+      fixedExpenseHistory: 'GET /v1/fixed-expenses/:id/history',
     },
   }
 }
@@ -1724,9 +2249,42 @@ async function handle(req: Request): Promise<Response> {
     })
   }
 
-  if (path === '/v1/fixed-expenses' && method === 'GET') {
-    const month = normalizeMonth(new URL(req.url).searchParams.get('month'))
-    return dataResponse(await fixedExpenses(householdId, month))
+  if (path === '/v1/fixed-expenses') {
+    if (method === 'GET') {
+      const month = normalizeMonth(url.searchParams.get('month'))
+      const includeInactive =
+        url.searchParams.get('includeInactive') === 'true'
+      return dataResponse(
+        await fixedExpenses(householdId, month, includeInactive),
+      )
+    }
+    if (method === 'POST') {
+      return createFixedExpense(req, householdId)
+    }
+  }
+
+  const fixedExpenseMatch = path.match(
+    /^\/v1\/fixed-expenses\/([^/]+)(\/apply|\/history)?$/,
+  )
+  if (fixedExpenseMatch) {
+    const id = fixedExpenseMatch[1]
+    const action = fixedExpenseMatch[2]
+
+    if (action === '/apply' && method === 'POST') {
+      return applyFixedExpense(req, householdId, id)
+    }
+    if (action === '/history' && method === 'GET') {
+      return fixedExpenseHistory(householdId, id)
+    }
+    if (!action && method === 'GET') {
+      return dataResponse(toApiFixedExpense(await fetchFixedExpense(householdId, id)))
+    }
+    if (!action && method === 'PATCH') {
+      return updateFixedExpense(req, householdId, id)
+    }
+    if (!action && method === 'DELETE') {
+      return deleteFixedExpense(householdId, id)
+    }
   }
 
   throw new ApiError(404, 'NOT_FOUND', '엔드포인트를 찾을 수 없습니다.')
