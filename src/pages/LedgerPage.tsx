@@ -391,6 +391,13 @@ export function LedgerPage({
                   {items.map((transaction) => {
                     const category = categoryOf(transaction.categoryId)
                     const savings = isSavingsCategory(transaction.categoryId)
+                    const displayName =
+                      transaction.merchant?.trim() ||
+                      transaction.memo?.trim() ||
+                      (savings ? '저축' : category.label)
+                    const hasDifferentMemo =
+                      Boolean(transaction.memo?.trim() &&
+                      transaction.memo.trim() !== displayName)
                     const card = transaction.cardId
                       ? state.cards.find((item) => item.id === transaction.cardId)
                       : undefined
@@ -419,7 +426,7 @@ export function LedgerPage({
                           </span>
                           <span className="tx__main">
                             <span className="tx__merchant">
-                              {transaction.merchant}
+                              {displayName}
                               {savings ? (
                                 <Badge tone="success">저축</Badge>
                               ) : (
@@ -435,7 +442,7 @@ export function LedgerPage({
                               {savings
                                 ? '저축 · 계좌'
                                 : `${category.label} · ${paymentMethodLabel(transaction)}`}
-                              {transaction.memo ? ` · ${transaction.memo}` : ''}
+                              {hasDifferentMemo ? ` · ${transaction.memo}` : ''}
                             </span>
                           </span>
                           <span

@@ -210,10 +210,15 @@ function fromFixedExpense(householdId: string, fixedExpense: FixedExpense) {
 }
 
 function toTransaction(row: TransactionRow): Transaction {
+  const fallbackMerchant =
+    (row.merchant && row.merchant.trim()) ||
+    (row.memo && row.memo.trim()) ||
+    (row.category_minor && row.category_minor.trim()) ||
+    '기타 지출'
   return {
     id: row.id,
     date: row.date,
-    merchant: row.merchant,
+    merchant: fallbackMerchant,
     amount: Number(row.amount) || 0,
     categoryId: row.category_id,
     cardId: row.card_id,
