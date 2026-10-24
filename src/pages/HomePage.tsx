@@ -13,7 +13,13 @@ import {
 } from '../lib/analytics'
 import { computeCardMonth } from '../lib/benefits'
 import { categoryOf, isSavingsCategory } from '../data/categories'
-import { daysElapsed, daysInMonth, formatDateKo } from '../lib/date'
+import {
+  currentMonth,
+  daysElapsed,
+  daysInMonth,
+  formatDateKo,
+  todayISO,
+} from '../lib/date'
 import {
   fixedExpenseDayLabel,
   fixedExpenseStatus,
@@ -107,6 +113,8 @@ export function HomePage({
         fixedExpense,
         month,
         fixedExpenseApplications,
+        todayISO(),
+        state.transactions,
       ),
     }),
   )
@@ -133,6 +141,16 @@ export function HomePage({
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
     .slice(0, 3)
 
+  const isCurrent = month === currentMonth()
+  const elapsed = daysElapsed(month)
+  const totalDays = daysInMonth(month)
+  const paceRatio =
+    summary.budget > 0
+      ? summary.spend / summary.budget / (elapsed / totalDays)
+      : 1
+  const isPaceOver = paceRatio > 1.15
+  const isPaceUnder = paceRatio < 0.85
+
   return (
     <div className="page">
       <header className="page-head">
@@ -153,9 +171,26 @@ export function HomePage({
         <div className="hero__glow" aria-hidden="true" />
         <div className="hero__top">
           <span className="hero__label">이번 달 지출</span>
-          <span className="hero__pill">
-            {summary.budget > 0 ? `예산의 ${Math.round(summary.usage * 100)}%` : '예산 미설정'}
-          </span>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {summary.budget > 0 && isCurrent && elapsed >= 3 && !summary.over && (
+              <span
+                className={`hero__pill ${
+                  isPaceOver
+                    ? 'hero__pill--warn'
+                    : isPaceUnder
+                      ? 'hero__pill--save'
+                      : ''
+                }`}
+              >
+                {isPaceOver ? '● 페이스 주의' : isPaceUnder ? '● 절약 페이스' : '적정 페이스'}
+              </span>
+            )}
+            <span className="hero__pill">
+              {summary.budget > 0
+                ? `예산의 ${Math.round(summary.usage * 100)}%`
+                : '예산 미설정'}
+            </span>
+          </div>
         </div>
         <div className="hero__amount">{won(summary.spend)}</div>
         <p className="hero__sub">

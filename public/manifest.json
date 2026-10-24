@@ -1,0 +1,18 @@
+{
+  "name": "쎈 가계부",
+  "short_name": "쎈 가계부",
+  "description": "카드 실적과 혜택을 자동으로 계산하고, 결제 전 가장 쎈 카드를 추천하는 가계부",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

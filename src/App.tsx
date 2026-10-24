@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { Icon, type IconName } from './components/Icon'
 import { TransactionModal } from './components/TransactionModal'
 import { useApp } from './store'
@@ -6,9 +6,16 @@ import type { Tab } from './nav'
 import type { FixedExpense, Transaction } from './types'
 import { HomePage } from './pages/HomePage'
 import { LedgerPage } from './pages/LedgerPage'
-import { CardsPage } from './pages/CardsPage'
-import { ReportPage } from './pages/ReportPage'
-import { SettingsPage } from './pages/SettingsPage'
+
+const CardsPage = lazy(() =>
+  import('./pages/CardsPage').then((m) => ({ default: m.CardsPage })),
+)
+const ReportPage = lazy(() =>
+  import('./pages/ReportPage').then((m) => ({ default: m.ReportPage })),
+)
+const SettingsPage = lazy(() =>
+  import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
+)
 
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'home', label: '홈', icon: 'home' },
@@ -76,19 +83,21 @@ export default function App() {
       </header>
 
       <main className="main">
-        {tab === 'home' && (
-          <HomePage onAdd={openAdd} onEdit={openEdit} onNavigate={setTab} />
-        )}
-        {tab === 'ledger' && (
-          <LedgerPage
-            onAdd={openAdd}
-            onEdit={openEdit}
-            onApplyFixedExpense={openFixedExpense}
-          />
-        )}
-        {tab === 'cards' && <CardsPage />}
-        {tab === 'report' && <ReportPage />}
-        {tab === 'settings' && <SettingsPage />}
+        <Suspense fallback={<div className="page" />}>
+          {tab === 'home' && (
+            <HomePage onAdd={openAdd} onEdit={openEdit} onNavigate={setTab} />
+          )}
+          {tab === 'ledger' && (
+            <LedgerPage
+              onAdd={openAdd}
+              onEdit={openEdit}
+              onApplyFixedExpense={openFixedExpense}
+            />
+          )}
+          {tab === 'cards' && <CardsPage />}
+          {tab === 'report' && <ReportPage />}
+          {tab === 'settings' && <SettingsPage />}
+        </Suspense>
       </main>
 
       <button

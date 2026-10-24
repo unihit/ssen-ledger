@@ -10,7 +10,11 @@ import {
 } from 'react'
 import { Icon } from './components/Icon'
 import { DEFAULT_SETTINGS } from './data/cards'
-import { createInitialState } from './data/sample'
+import {
+  DEFAULT_FIXED_EXPENSES,
+  DEFAULT_PREV_MONTH_TRANSACTIONS,
+  createInitialState,
+} from './data/sample'
 import { currentMonth } from './lib/date'
 import { isSavingsCategory } from './data/categories'
 import { SAVINGS_SHEET, withSavingsDefaults } from './lib/savings'
@@ -77,19 +81,27 @@ function loadFixedExpenseData(
   try {
     const raw = localStorage.getItem(fixedExpenseStorageKey(householdId))
     if (!raw) {
-      return { fixedExpenses: [], fixedExpenseApplications: [] }
+      return {
+        fixedExpenses: DEFAULT_FIXED_EXPENSES,
+        fixedExpenseApplications: [],
+      }
     }
     const parsed = JSON.parse(raw) as Partial<LocalFixedExpenseData>
-    return {
-      fixedExpenses: Array.isArray(parsed.fixedExpenses)
+    const fixedExpenses =
+      Array.isArray(parsed.fixedExpenses) && parsed.fixedExpenses.length > 0
         ? parsed.fixedExpenses
-        : [],
+        : DEFAULT_FIXED_EXPENSES
+    return {
+      fixedExpenses,
       fixedExpenseApplications: Array.isArray(parsed.fixedExpenseApplications)
         ? parsed.fixedExpenseApplications
         : [],
     }
   } catch {
-    return { fixedExpenses: [], fixedExpenseApplications: [] }
+    return {
+      fixedExpenses: DEFAULT_FIXED_EXPENSES,
+      fixedExpenseApplications: [],
+    }
   }
 }
 
@@ -97,12 +109,31 @@ function normalize(state: AppState): AppState {
   const cards = Array.isArray(state.cards)
     ? state.cards.filter((card) => !RETIRED_CARD_IDS.has(card.id))
     : createInitialState().cards
-  const transactions = Array.isArray(state.transactions)
-    ? state.transactions.filter(
-        (transaction) =>
-          !transaction.cardId || !RETIRED_CARD_IDS.has(transaction.cardId),
-      )
+  const existingTransactions = Array.isArray(state.transactions)
+    ? state.transactions
+        .filter(
+          (transaction) =>
+            !transaction.cardId || !RETIRED_CARD_IDS.has(transaction.cardId),
+        )
+        .filter((transaction) => transaction.id !== 'sample-prev-kb-nara')
+        .map((transaction) =>
+          transaction.id === 'sample-prev-mg-plus-s'
+            ? {
+                ...transaction,
+                amount: 1000000,
+                memo: '9월 실적 충족 (100만 구간 · 통합한도 6만)',
+              }
+            : transaction,
+        )
     : []
+
+  // 9월 전월 실적이 없는 로컬 환경이면 기본 실적 충족 내역을 보충한다.
+  const hasSeptData = existingTransactions.some((tx) =>
+    tx.date.startsWith('2026-09'),
+  )
+  const transactions = hasSeptData
+    ? existingTransactions
+    : [...existingTransactions, ...DEFAULT_PREV_MONTH_TRANSACTIONS]
 
   return {
     version: 1,
@@ -535,7 +566,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         transactions: current.transactions.filter((item) => item.id !== id),
       }))
       setFixedExpenseApplications((current) =>
-        current.filter((application) => application.transactionId !== id),
+        current.filter(
+          (application) =>
+            application.transactionId !== id &&
+            (!previous?.fixedExpenseId ||
+              application.fixedExpenseId !== previous.fixedExpenseId ||
+              application.month !== previous.date.slice(0, 7)),
+        ),
       )
 
       const hid = householdId
@@ -762,13 +799,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
     ) => {
       const month = input.date.slice(0, 7)
-      if (
-        fixedExpenseApplications.some(
-          (application) =>
-            application.fixedExpenseId === fixedExpense.id &&
-            application.month === month,
+      const existingApplication = fixedExpenseApplications.find(
+        (application) =>
+          application.fixedExpenseId === fixedExpense.id &&
+          application.month === month,
+      )
+      const isExistingTxAlive =
+        existingApplication &&
+        state.transactions.some(
+          (tx) =>
+            (tx.id === existingApplication.transactionId ||
+              (tx.fixedExpenseId === fixedExpense.id &&
+                tx.date.startsWith(month))) &&
+            (tx.status ?? 'active') !== 'canceled',
         )
-      ) {
+
+      if (existingApplication && isExistingTxAlive) {
         return {
           ok: false,
           message: '이번 달에는 이미 반영된 고정지출이에요.',
@@ -829,16 +875,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         fixedExpenseMonth: month,
       })
 
-      const visible = !savings && categoryMajor === '생활비'
-      if (visible) {
-        setState((current) => ({
-          ...current,
-          transactions: [transaction, ...current.transactions],
-        }))
-      }
+      setState((current) => ({
+        ...current,
+        transactions: [transaction, ...current.transactions],
+      }))
 
       setFixedExpenseApplications((current) => [
-        ...current,
+        ...current.filter(
+          (app) =>
+            !(app.fixedExpenseId === fixedExpense.id && app.month === month),
+        ),
         {
           fixedExpenseId: fixedExpense.id,
           month,
@@ -853,14 +899,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         push(
           () => saveTransactionRemote(hid, transaction),
           () => {
-            if (visible) {
-              setState((current) => ({
-                ...current,
-                transactions: current.transactions.filter(
-                  (item) => item.id !== transaction.id,
-                ),
-              }))
-            }
+            setState((current) => ({
+              ...current,
+              transactions: current.transactions.filter(
+                (item) => item.id !== transaction.id,
+              ),
+            }))
             setFixedExpenseApplications((current) =>
               current.filter(
                 (application) =>
@@ -873,7 +917,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       return { ok: true, message: '고정지출을 반영했어요.' }
     },
-    [fixedExpenseApplications, householdId, push],
+    [fixedExpenseApplications, householdId, push, state.transactions],
   )
 
   const resetToInitial = useCallback(() => {

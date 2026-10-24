@@ -2,6 +2,7 @@ import type {
   CategoryId,
   FixedExpense,
   FixedExpenseApplication,
+  Transaction,
 } from '../types'
 import { daysInMonth, todayISO } from './date'
 
@@ -131,18 +132,46 @@ export function applicationFor(
   )
 }
 
+export function fixedExpenseDDayLabel(
+  dueDate: string,
+  today = todayISO(),
+): string {
+  const due = new Date(dueDate)
+  const cur = new Date(today)
+  const diffTime = due.getTime() - cur.getTime()
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24))
+
+  if (diffDays === 0) return 'D-Day'
+  if (diffDays > 0) return `D-${diffDays}`
+  return `${Math.abs(diffDays)}일 지남`
+}
+
 export function fixedExpenseStatus(
   fixedExpense: FixedExpense,
   month: string,
   applications: FixedExpenseApplication[],
   today = todayISO(),
+  transactions?: Transaction[],
 ): {
   status: FixedExpenseStatus
   dueDate: string
   application?: FixedExpenseApplication
+  dDayLabel?: string
 } {
   const application = applicationFor(applications, fixedExpense.id, month)
-  if (application) {
+  // 거래 목록이 주어지면, 해당 반영 거래가 실제로 존재하고 취소되지 않은 경우에만 'recorded'로 판정한다.
+  const isTransactionActive =
+    !transactions ||
+    !application ||
+    transactions.some(
+      (tx) =>
+        (tx.id === application.transactionId ||
+          (tx.fixedExpenseId === fixedExpense.id &&
+            tx.date.startsWith(month))) &&
+        (tx.status ?? 'active') !== 'canceled',
+    )
+
+  if (application && isTransactionActive) {
     return { status: 'recorded', dueDate: application.date, application }
   }
 
@@ -150,6 +179,7 @@ export function fixedExpenseStatus(
   return {
     status: dueDate > today ? 'upcoming' : 'due',
     dueDate,
+    dDayLabel: fixedExpenseDDayLabel(dueDate, today),
   }
 }
 

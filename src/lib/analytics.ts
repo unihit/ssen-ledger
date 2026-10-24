@@ -4,7 +4,7 @@ import {
   isSavingsCategory,
 } from '../data/categories'
 import type { AppState, Category, CategoryId, Transaction } from '../types'
-import { shiftMonth } from './date'
+import { currentMonth, daysElapsed, daysInMonth, shiftMonth } from './date'
 import { ratio } from './format'
 
 export interface CategorySlice {
@@ -110,11 +110,23 @@ export function buildInsights(state: AppState, month: string): Insight[] {
 
   if (budget > 0) {
     const usage = spend / budget
+    const isCurrent = month === currentMonth()
+    const totalDays = daysInMonth(month)
+    const elapsed = Math.max(1, daysElapsed(month))
+    const timeProgress = elapsed / totalDays
+    const expectedSpend = Math.round((spend / elapsed) * totalDays)
+
     if (usage >= 1) {
       insights.push({
         tone: 'warn',
         title: '이번 달 예산을 초과했어요',
         body: `예산보다 ${Math.round(spend - budget).toLocaleString('ko-KR')}원 더 썼어요. 남은 기간은 고정지출 위주로 관리해보세요.`,
+      })
+    } else if (isCurrent && elapsed >= 5 && usage / timeProgress > 1.2) {
+      insights.push({
+        tone: 'warn',
+        title: '지출 페이스가 빨라요',
+        body: `지금 속도면 이번 달 약 ${expectedSpend.toLocaleString('ko-KR')}원을 쓰게 되어 예산(${budget.toLocaleString('ko-KR')}원)을 초과할 수 있어요.`,
       })
     } else if (usage >= 0.8) {
       insights.push({

@@ -17,6 +17,8 @@ export type IconName =
   | 'sparkles'
   | 'search'
   | 'wallet'
+  | 'chevronDown'
+  | 'chevronUp'
 
 const PATHS: Record<IconName, ReactNode> = {
   home: (
@@ -54,6 +56,8 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M4 9h16M16 13.5h.01" />
     </>
   ),
+  chevronDown: <path d="M6 9l6 6 6-6" />,
+  chevronUp: <path d="M18 15l-6-6-6 6" />,
 }
 
 export function Icon({

@@ -1,5 +1,12 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { CATEGORIES, isSavingsCategory } from '../data/categories'
+import {
+  CARD_PAYMENT_METHODS,
+  CASH_PAYMENT_METHODS,
+  PAYMENT_METHOD_EMOJI,
+  defaultPaymentMethodForCard,
+  paymentMethodOptions,
+} from '../data/paymentMethods'
 import { recommendCards } from '../lib/benefits'
 import { fixedExpenseDueDate } from '../lib/fixedExpenses'
 import { todayISO } from '../lib/date'
@@ -58,6 +65,16 @@ export function TransactionModal({
   const [cardId, setCardId] = useState<string | null>(
     initial?.cardId ?? fixedExpense?.cardId ?? null,
   )
+  const selectedCard = state.cards.find((card) => card.id === cardId)
+  const [paymentMethod, setPaymentMethod] = useState<string>(() => {
+    if (initial?.paymentMethod) return initial.paymentMethod
+    if (fixedExpense?.paymentMethod) return fixedExpense.paymentMethod
+    if (startingSavings) return '계좌이체'
+    const initCard = state.cards.find(
+      (c) => c.id === (initial?.cardId ?? fixedExpense?.cardId),
+    )
+    return initCard ? defaultPaymentMethodForCard(initCard.kind) : '계좌이체'
+  })
   const [memo, setMemo] = useState(initial?.memo ?? fixedExpense?.memo ?? '')
   const [excluded, setExcluded] = useState(
     startingSavings
@@ -72,6 +89,26 @@ export function TransactionModal({
   const categoryLabel =
     CATEGORIES.find((category) => category.id === categoryId)?.label ?? '기타'
 
+  const handleCardChange = (nextCardId: string | null) => {
+    setCardId(nextCardId)
+    if (nextCardId === null) {
+      if ((CARD_PAYMENT_METHODS as readonly string[]).includes(paymentMethod)) {
+        setPaymentMethod('계좌이체')
+      }
+    } else {
+      const targetCard = state.cards.find((c) => c.id === nextCardId)
+      if (paymentMethod === '간편결제') {
+        // 간편결제 상태 유지
+      } else if (
+        (CASH_PAYMENT_METHODS as readonly string[]).includes(paymentMethod)
+      ) {
+        setPaymentMethod(defaultPaymentMethodForCard(targetCard?.kind))
+      } else if (targetCard) {
+        setPaymentMethod(defaultPaymentMethodForCard(targetCard.kind))
+      }
+    }
+  }
+
   const recommendations = useMemo(
     () =>
       savingsCategory
@@ -79,6 +116,7 @@ export function TransactionModal({
         : recommendCards(state.cards, state.transactions, date.slice(0, 7), {
             categoryId,
             amount: numericAmount,
+            paymentMethod,
           }),
     [
       state.cards,
@@ -87,6 +125,7 @@ export function TransactionModal({
       categoryId,
       numericAmount,
       savingsCategory,
+      paymentMethod,
     ],
   )
 
@@ -95,6 +134,19 @@ export function TransactionModal({
   const selectedGain = selected?.gain ?? 0
   const extraGain = best ? Math.max(0, best.gain - selectedGain) : 0
 
+  const handleApplyBest = () => {
+    if (!best) return
+    setCardId(best.card.id)
+    if (best.matchedRule?.paymentMethods?.includes('간편결제')) {
+      setPaymentMethod('간편결제')
+    } else if (
+      paymentMethod === '간편결제' &&
+      !best.matchedRule?.paymentMethods?.includes('간편결제')
+    ) {
+      setPaymentMethod(defaultPaymentMethodForCard(best.card.kind))
+    }
+  }
+
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
     if (numericAmount <= 0) {
@@ -102,6 +154,9 @@ export function TransactionModal({
       return
     }
     const effectiveCardId = savingsCategory ? null : cardId
+    const effectivePaymentMethod = savingsCategory
+      ? '계좌이체'
+      : paymentMethod
     const effectiveExcluded = savingsCategory ? true : excluded
     const effectiveMerchant =
       merchant.trim() || (savingsCategory ? '저축' : `${categoryLabel} 결제`)
@@ -111,6 +166,7 @@ export function TransactionModal({
       amount: numericAmount,
       categoryId,
       cardId: effectiveCardId,
+      paymentMethod: effectivePaymentMethod,
       memo: memo.trim(),
       excluded: effectiveExcluded,
       ...(savingsCategory ? SAVINGS_SHEET : {}),
@@ -124,6 +180,7 @@ export function TransactionModal({
         memo: memo.trim(),
         categoryId,
         cardId: effectiveCardId,
+        paymentMethod: effectivePaymentMethod,
         excluded: effectiveExcluded,
       })
       if (!result.ok) {
@@ -144,8 +201,6 @@ export function TransactionModal({
               categoryGroup: initial.categoryGroup,
               correction: initial.correction,
               note: initial.note,
-              paymentMethod:
-                initial.cardId === cardId ? initial.paymentMethod : undefined,
             }
           : {}
       const preservedFixedFields = {
@@ -157,6 +212,7 @@ export function TransactionModal({
         ...payload,
         ...preservedSheetFields,
         ...preservedFixedFields,
+        paymentMethod: effectivePaymentMethod,
         id: initial.id,
       })
     } else {
@@ -257,7 +313,7 @@ export function TransactionModal({
               <button
                 type="button"
                 className="btn btn--tiny btn--primary"
-                onClick={() => setCardId(best.card.id)}
+                onClick={handleApplyBest}
               >
                 {extraGain > 0 ? `+${won(extraGain)}` : '적용'}
               </button>
@@ -329,7 +385,7 @@ export function TransactionModal({
               <button
                 type="button"
                 className={`chip${cardId === null ? ' is-active' : ''}`}
-                onClick={() => setCardId(null)}
+                onClick={() => handleCardChange(null)}
               >
                 <Icon name="wallet" size={16} />
                 현금·계좌
@@ -339,7 +395,7 @@ export function TransactionModal({
                   key={card.id}
                   type="button"
                   className={`chip${cardId === card.id ? ' is-active' : ''}`}
-                  onClick={() => setCardId(card.id)}
+                  onClick={() => handleCardChange(card.id)}
                   style={
                     cardId === card.id
                       ? { borderColor: card.colorFrom, background: `${card.colorFrom}14` }
@@ -357,6 +413,45 @@ export function TransactionModal({
             </div>
           )}
         </div>
+
+        {!savingsCategory && (
+          <div className="field">
+            <label>결제수단</label>
+            <div className="chip-row">
+              {paymentMethodOptions(selectedCard, initial?.paymentMethod).map(
+                (method) => {
+                  const active = paymentMethod === method
+                  return (
+                    <button
+                      key={method}
+                      type="button"
+                      className={`chip${active ? ' is-active' : ''}`}
+                      onClick={() => setPaymentMethod(method)}
+                      style={
+                        active
+                          ? selectedCard
+                            ? {
+                                borderColor: selectedCard.colorFrom,
+                                background: `${selectedCard.colorFrom}14`,
+                              }
+                            : { borderColor: 'var(--accent)' }
+                          : undefined
+                      }
+                    >
+                      <span aria-hidden="true">{PAYMENT_METHOD_EMOJI[method]}</span>
+                      {method}
+                    </button>
+                  )
+                },
+              )}
+            </div>
+            <span className="field__hint">
+              {cardId !== null
+                ? '간편결제 혜택(예: MG+ S 10%)은 간편결제를 선택해야 적용돼요.'
+                : '카드 없이 결제한 방식을 선택해 주세요.'}
+            </span>
+          </div>
+        )}
 
         <div className="field-row">
           <div className="field">

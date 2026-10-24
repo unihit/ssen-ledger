@@ -11,6 +11,7 @@ import type { Card, CategoryId } from '../types'
 export function CardsPage() {
   const { state, month, toggleCard } = useApp()
   const [recCategory, setRecCategory] = useState<CategoryId>('food')
+  const [recPaymentMethod, setRecPaymentMethod] = useState<'card' | 'simplepay'>('card')
   const [recAmount, setRecAmount] = useState('30000')
   const [editor, setEditor] = useState<{ card?: Card } | null>(null)
 
@@ -20,8 +21,9 @@ export function CardsPage() {
       recommendCards(state.cards, state.transactions, month, {
         categoryId: recCategory,
         amount: numericAmount,
+        paymentMethod: recPaymentMethod === 'simplepay' ? '간편결제' : undefined,
       }),
-    [state.cards, state.transactions, month, recCategory, numericAmount],
+    [state.cards, state.transactions, month, recCategory, numericAmount, recPaymentMethod],
   )
 
   return (
@@ -64,6 +66,16 @@ export function CardsPage() {
                 {category.emoji} {category.label}
               </option>
             ))}
+          </select>
+          <select
+            value={recPaymentMethod}
+            onChange={(event) =>
+              setRecPaymentMethod(event.target.value as 'card' | 'simplepay')
+            }
+            aria-label="결제 방식"
+          >
+            <option value="card">💳 일반 카드</option>
+            <option value="simplepay">⚡ 간편결제</option>
           </select>
           <div className="amount-input amount-input--compact">
             <input

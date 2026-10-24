@@ -38,9 +38,30 @@ export function LedgerPage({
   )
   const [cardFilter, setCardFilter] = useState<CardFilter>('all')
   const [query, setQuery] = useState('')
+  const [isFixedCollapsed, setIsFixedCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem('ssen-ledger-fixed-collapsed') === 'true'
+  })
 
-  const cardName = (id: string | null) =>
-    id ? state.cards.find((card) => card.id === id)?.name ?? '카드' : '현금·계좌'
+  const toggleFixedCollapsed = () => {
+    setIsFixedCollapsed((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem('ssen-ledger-fixed-collapsed', String(next))
+      } catch {
+        // 무시
+      }
+      return next
+    })
+  }
+
+  const paymentMethodLabel = (transaction: Transaction) => {
+    if (transaction.cardId) {
+      const card = state.cards.find((item) => item.id === transaction.cardId)
+      const name = card?.name ?? '카드'
+      return transaction.paymentMethod === '간편결제' ? `${name} (간편결제)` : name
+    }
+    return transaction.paymentMethod || '현금·계좌'
+  }
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase()
@@ -51,6 +72,7 @@ export function LedgerPage({
       )
       .filter((transaction) => {
         if (cardFilter === 'all') return true
+        if (cardFilter === 'simplepay') return transaction.paymentMethod === '간편결제'
         if (cardFilter === 'cash') return transaction.cardId === null
         return transaction.cardId === cardFilter
       })
@@ -100,6 +122,7 @@ export function LedgerPage({
         month,
         fixedExpenseApplications,
         todayISO(),
+        state.transactions,
       ),
     }),
   )
@@ -158,12 +181,36 @@ export function LedgerPage({
       </section>
 
       <section className="panel fixed-panel">
-        <header className="panel__head">
+        <header
+          className={`panel__head panel__head--clickable${
+            isFixedCollapsed ? ' panel__head--collapsed' : ''
+          }`}
+          onClick={toggleFixedCollapsed}
+          role="button"
+          tabIndex={0}
+          aria-expanded={!isFixedCollapsed}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              toggleFixedCollapsed()
+            }
+          }}
+        >
           <div>
             <h2>
               <Icon name="ledger" size={18} /> 이번 달 고정지출·저축
+              <span className="fixed-panel__toggle-icon">
+                <Icon
+                  name={isFixedCollapsed ? 'chevronDown' : 'chevronUp'}
+                  size={16}
+                />
+              </span>
             </h2>
-            <p>템플릿은 지출·저축에 잡히지 않아요. 확인 후 반영해 주세요.</p>
+            <p>
+              {isFixedCollapsed
+                ? '클릭하면 이번 달 고정지출 상세 목록을 펼칠 수 있어요.'
+                : '템플릿은 지출·저축에 잡히지 않아요. 확인 후 반영해 주세요.'}
+            </p>
           </div>
           <div className="fixed-panel__summary">
             <strong>{won(fixedTotal)}</strong>
@@ -176,76 +223,92 @@ export function LedgerPage({
           </div>
         </header>
 
-        {fixedItems.length === 0 ? (
-          <EmptyState
-            emoji="📌"
-            title="이번 달 고정지출·저축이 없어요"
-            body="설정에서 고정지출·저축을 등록하면 매월 반영 후보를 보여드려요."
-          />
-        ) : (
-          <ul className="fixed-list">
-            {fixedItems.map(({ fixedExpense, status, dueDate, application }) => {
-              const category = categoryOf(fixedExpense.categoryId)
-              const card = fixedExpense.cardId
-                ? state.cards.find((item) => item.id === fixedExpense.cardId)
-                : undefined
-              return (
-                <li className="fixed-row" key={fixedExpense.id}>
-                  <span
-                    className="fixed-row__icon"
-                    style={{ background: `${category.color}18` }}
-                  >
-                    {category.emoji}
-                  </span>
-                  <div className="fixed-row__main">
-                    <strong>
-                      {fixedExpense.name}
-                      <Badge
-                        tone={
-                          status === 'recorded'
-                            ? 'success'
-                            : status === 'due'
-                              ? 'warn'
-                              : 'neutral'
-                        }
+        {!isFixedCollapsed &&
+          (fixedItems.length === 0 ? (
+            <EmptyState
+              emoji="📌"
+              title="이번 달 고정지출·저축이 없어요"
+              body="설정에서 고정지출·저축을 등록하면 매월 반영 후보를 보여드려요."
+            />
+          ) : (
+            <ul className="fixed-list">
+              {fixedItems.map(
+                ({
+                  fixedExpense,
+                  status,
+                  dueDate,
+                  application,
+                  dDayLabel,
+                }) => {
+                  const category = categoryOf(fixedExpense.categoryId)
+                  const card = fixedExpense.cardId
+                    ? state.cards.find(
+                        (item) => item.id === fixedExpense.cardId,
+                      )
+                    : undefined
+                  return (
+                    <li className="fixed-row" key={fixedExpense.id}>
+                      <span
+                        className="fixed-row__icon"
+                        style={{ background: `${category.color}18` }}
                       >
-                        {fixedExpenseStatusLabel(status)}
-                      </Badge>
-                    </strong>
-                    <span>
-                      매월 {fixedExpenseDayLabel(fixedExpense.dayOfMonth)} ·{' '}
-                      {isSavingsFixedExpense(fixedExpense)
-                        ? '저축'
-                        : category.label}{' '}
-                      · {card?.name ?? '현금·계좌'}
-                    </span>
-                    <small>
-                      {status === 'recorded'
-                        ? `${formatDateShort(application?.date ?? dueDate)} 반영`
-                        : `${formatDateShort(dueDate)} 예정`}
-                    </small>
-                  </div>
-                  <div className="fixed-row__side">
-                    <strong>{won(fixedExpense.amount)}</strong>
-                    {status === 'recorded' ? (
-                      <span className="fixed-row__done">
-                        <Icon name="check" size={14} /> 완료
+                        {category.emoji}
                       </span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn btn--tiny btn--primary"
-                        onClick={() => onApplyFixedExpense(fixedExpense)}
-                      >
-                        반영
-                      </button>
-                    )}
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        )}
+                      <div className="fixed-row__main">
+                        <strong>
+                          {fixedExpense.name}
+                          <Badge
+                            tone={
+                              status === 'recorded'
+                                ? 'success'
+                                : status === 'due'
+                                  ? 'warn'
+                                  : 'neutral'
+                            }
+                          >
+                            {fixedExpenseStatusLabel(status)}
+                            {status !== 'recorded' && dDayLabel
+                              ? ` · ${dDayLabel}`
+                              : ''}
+                          </Badge>
+                        </strong>
+                        <span>
+                          매월 {fixedExpenseDayLabel(fixedExpense.dayOfMonth)} ·{' '}
+                          {isSavingsFixedExpense(fixedExpense)
+                            ? '저축'
+                            : category.label}{' '}
+                          · {card?.name ?? '현금·계좌'}
+                        </span>
+                        <small>
+                          {status === 'recorded'
+                            ? `${formatDateShort(
+                                application?.date ?? dueDate,
+                              )} 반영`
+                            : `${formatDateShort(dueDate)} 예정`}
+                        </small>
+                      </div>
+                      <div className="fixed-row__side">
+                        <strong>{won(fixedExpense.amount)}</strong>
+                        {status === 'recorded' ? (
+                          <span className="fixed-row__done">
+                            <Icon name="check" size={14} /> 완료
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn--tiny btn--primary"
+                            onClick={() => onApplyFixedExpense(fixedExpense)}
+                          >
+                            반영
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  )
+                },
+              )}
+            </ul>
+          ))}
       </section>
 
       <section className="filters panel">
@@ -280,6 +343,7 @@ export function LedgerPage({
             aria-label="카드 필터"
           >
             <option value="all">모든 결제수단</option>
+            <option value="simplepay">⚡ 간편결제</option>
             <option value="cash">현금·계좌</option>
             {state.cards.map((card) => (
               <option key={card.id} value={card.id}>
@@ -368,7 +432,9 @@ export function LedgerPage({
                               )}
                             </span>
                             <span className="tx__meta">
-                              {savings ? '저축 · 계좌' : `${category.label} · ${cardName(transaction.cardId)}`}
+                              {savings
+                                ? '저축 · 계좌'
+                                : `${category.label} · ${paymentMethodLabel(transaction)}`}
                               {transaction.memo ? ` · ${transaction.memo}` : ''}
                             </span>
                           </span>

@@ -12,4 +12,15 @@ export default defineConfig(({ command }) => ({
   server: {
     port: 5173,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-supabase': ['@supabase/supabase-js'],
+          'vendor-datadog': ['@datadog/browser-rum', '@datadog/browser-logs'],
+        },
+      },
+    },
+  },
 }))

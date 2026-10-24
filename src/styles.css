@@ -426,6 +426,22 @@ p {
   backdrop-filter: blur(6px);
 }
 
+.hero__pill--save {
+  background: rgba(6, 95, 70, 0.45);
+  border-color: rgba(110, 231, 183, 0.65);
+  color: #a7f3d0;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.hero__pill--warn {
+  background: rgba(153, 27, 27, 0.45);
+  border-color: rgba(254, 202, 202, 0.65);
+  color: #fee2e2;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
 .hero__amount {
   position: relative;
   margin: 10px 0 3px;
@@ -1562,6 +1578,30 @@ select:focus {
 }
 
 /* ---------- fixed expenses ---------- */
+.panel__head--clickable {
+  cursor: pointer;
+  user-select: none;
+  border-radius: 8px;
+  transition: opacity 0.15s ease;
+}
+
+.panel__head--clickable:hover {
+  opacity: 0.85;
+}
+
+.panel__head--collapsed {
+  margin-bottom: 0;
+}
+
+.fixed-panel__toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  color: var(--text-3);
+  transition: transform 0.2s ease;
+}
+
 .fixed-panel__summary {
   display: flex;
   flex-direction: column;
@@ -2050,6 +2090,18 @@ select:focus {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+}
+
+.chip__tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  margin-left: 4px;
 }
 
 /* ---------- switch ---------- */

@@ -325,7 +325,7 @@ export async function loadCloudState(
     (row) =>
       (row.status ?? 'active') === 'active' &&
       ((row.category_major ?? '생활비') === '생활비' ||
-        (row.category_id === 'savings' && !row.fixed_expense_id)),
+        row.category_id === 'savings'),
   )
 
   const applicationMap = new Map<string, FixedExpenseApplication>()

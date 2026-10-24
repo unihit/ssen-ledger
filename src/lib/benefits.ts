@@ -209,6 +209,7 @@ export interface RecommendationInput {
   categoryId: CategoryId
   amount: number
   merchant?: string
+  paymentMethod?: string
 }
 
 export interface Recommendation {
@@ -238,6 +239,7 @@ export function recommendCards(
   for (const card of cards) {
     if (!card.active) continue
     const before = computeCardMonth(card, transactions, month)
+    const defaultMethod = card.kind === 'check' ? '체크카드' : '신용카드'
     const simulated: Transaction = {
       id: '__simulation__',
       date: simulationDate,
@@ -245,18 +247,26 @@ export function recommendCards(
       amount,
       categoryId: input.categoryId,
       cardId: card.id,
+      paymentMethod: input.paymentMethod || defaultMethod,
     }
     // 같은 카드에 결제 1건을 더했을 때의 혜택 증가분만 본다.
     const simulatedAfter = computeCardMonth(card, [...transactions, simulated], month)
     const gain = Math.max(0, simulatedAfter.totalBenefit - before.totalBenefit)
     const after = simulatedAfter
 
-    const applicable = before.rows.find(
-      (row) => row.rule.categoryId === input.categoryId,
-    )
-    const configured =
-      card.benefits.find((rule) => rule.categoryId === input.categoryId) ?? null
+    const targetRule = ruleForTransaction(card.benefits, simulated)
+    const applicable = targetRule
+      ? before.rows.find((row) => row.rule.id === targetRule.id)
+      : null
+    const configured = targetRule
     const matchedRule = applicable?.rule ?? configured
+
+    const ruleLabel = matchedRule
+      ? matchedRule.paymentMethods?.includes(simulated.paymentMethod ?? '') &&
+        matchedRule.categoryId !== input.categoryId
+        ? simulated.paymentMethod
+        : categoryOf(matchedRule.categoryId).label
+      : categoryOf(input.categoryId).label
 
     let reason = ''
     if (!before.performanceMet) {
@@ -268,11 +278,11 @@ export function recommendCards(
       ) {
         reason = `건당 ${won(applicable.rule.minTransactionAmount)} 이상 결제 시 적용`
       } else if (gain > 0) {
-        reason = `${categoryOf(applicable.rule.categoryId).label} ${ratePercent(applicable.rule.rate)} · +${won(gain)}`
+        reason = `${ruleLabel} ${ratePercent(applicable.rule.rate)} · +${won(gain)}`
       } else if (before.capLeft <= 0) {
         reason = '이번 달 통합 한도 소진'
       } else {
-        reason = `${categoryOf(applicable.rule.categoryId).label} 한도 소진`
+        reason = `${ruleLabel} 한도 소진`
       }
     } else if (configured?.minSpend) {
       reason = `전월 ${wonShort(configured.minSpend)} 실적 필요`
@@ -281,7 +291,7 @@ export function recommendCards(
     } else if (before.capLeft <= 0) {
       reason = '이번 달 혜택 한도 소진'
     } else {
-      reason = '이 카드엔 혜택 카테고리가 없어요'
+      reason = '이 카드엔 혜택 조건이 없어요'
     }
 
     results.push({
