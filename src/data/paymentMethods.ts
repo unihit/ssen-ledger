@@ -23,16 +23,14 @@ export const PAYMENT_METHOD_EMOJI: Record<string, string> = {
   기타: '📝',
 }
 
-/** 선택한 카드(또는 현금·계좌)에서 고를 수 있는 결제수단 목록 */
+/** 고를 수 있는 결제수단 목록. 카드 여부와 무관하게 전체 목록을 보여준다. */
 export function paymentMethodOptions(
-  card?: { kind: 'credit' | 'check' } | null,
+  _card?: { kind: 'credit' | 'check' } | null,
   current?: string,
 ): string[] {
-  const base = card
-    ? [card.kind === 'check' ? '체크카드' : '신용카드', '간편결제']
-    : ['계좌이체', '현금', '자동이체']
-  // 기존 내역이 다른 값(예: 기타)이면 편집 시 유지할 수 있게 포함
-  if (current && !base.includes(current) && !card) base.push(current)
+  const base: string[] = [...PAYMENT_METHODS]
+  // 기존 내역이 목록에 없는 값이면 편집 시 유지할 수 있게 포함
+  if (current && !base.includes(current)) base.push(current)
   return base
 }
 

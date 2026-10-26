@@ -881,6 +881,9 @@ async function createTransaction(req: Request, householdId: string) {
       ? '계좌이체'
       : paymentMethod ?? '계좌이체'
     : paymentMethod
+  const usesCard = ['신용카드', '체크카드', '간편결제'].includes(
+    normalizedPaymentMethod ?? '',
+  )
 
   const payload = {
     household_id: householdId,
@@ -889,7 +892,7 @@ async function createTransaction(req: Request, householdId: string) {
     merchant: input.merchant,
     amount: input.amount,
     category_id: appCategory,
-    card_id: savings ? null : cardId,
+    card_id: usesCard ? cardId : null,
     memo: input.memo,
     excluded: savings || input.categoryMajor !== '생활비',
     category_major: input.categoryMajor,
@@ -1053,13 +1056,16 @@ async function updateTransaction(
       ? '계좌이체'
       : paymentMethod ?? '계좌이체'
     : paymentMethod
+  const usesCard = ['신용카드', '체크카드', '간편결제'].includes(
+    normalizedPaymentMethod ?? '',
+  )
 
   const payload = {
     date: input.date,
     merchant: input.merchant,
     amount: input.amount,
     category_id: appCategory,
-    card_id: savings ? null : cardId,
+    card_id: usesCard ? cardId : null,
     memo: input.memo,
     excluded: savings || input.categoryMajor !== '생활비',
     category_major: input.categoryMajor,
@@ -1670,6 +1676,9 @@ async function buildFixedExpensePayload(
       ? '자동이체'
       : paymentMethod ?? '자동이체'
     : paymentMethod
+  const usesCard = ['신용카드', '체크카드', '간편결제'].includes(
+    normalizedPaymentMethod ?? '',
+  )
 
   return {
     household_id: householdId,
@@ -1689,7 +1698,7 @@ async function buildFixedExpensePayload(
     memo: input.memo || null,
     payment_method: normalizedPaymentMethod,
     note: input.note || null,
-    card_id: savings ? null : cardId,
+    card_id: usesCard ? cardId : null,
     updated_by: 'muse',
   }
 }
@@ -1895,19 +1904,29 @@ async function fixedExpenses(
         range.lastDay,
       )
       const linked = linkedByFixedExpense.get(`${row.id}:${month}`)
-      const fuzzy = candidateDate
-        ? transactions.find(
-            (transaction) =>
-              !transaction.fixed_expense_id &&
-              transaction.date === candidateDate &&
-              transaction.category_major === row.category_major &&
-              transaction.category_minor === row.category_minor &&
-              effectiveAmount(transaction) === Number(row.amount) &&
-              (transaction.merchant ?? '') === (row.merchant ?? '') &&
-              (transaction.memo ?? '') === (row.memo ?? ''),
-          )
-        : undefined
-      const matched = linked ?? fuzzy
+      // 매칭은 fixed_expense_id + fixed_expense_month로만 인정한다.
+      // 같은 날짜·금액이어도 연결되지 않은 거래는 자동 매칭하지 않고 후보로만 알려준다.
+      const matched = linked
+      const suggestedCandidates = !matched && candidateDate
+        ? transactions
+            .filter(
+              (transaction) =>
+                !transaction.fixed_expense_id &&
+                transaction.date === candidateDate &&
+                effectiveAmount(transaction) === Number(row.amount),
+            )
+            .slice(0, 5)
+            .map((transaction) => ({
+              id: transaction.id,
+              date: transaction.date,
+              merchant: transaction.merchant ?? '',
+              amount: effectiveAmount(transaction),
+              categoryMajor: transaction.category_major ?? null,
+              categoryMinor: transaction.category_minor ?? null,
+              linkHint:
+                '이 거래를 고정지출에 연결하려면 apply에 linkTransactionId로 지정하세요.',
+            }))
+        : []
       let candidateStatus = '기간·일자 확인'
       if (candidateDate) {
         if (matched) candidateStatus = '기록됨'
@@ -1925,6 +1944,7 @@ async function fixedExpenses(
         candidateStatus,
         candidateTransactionId: matched?.id ?? null,
         matchedTransactionId: matched?.id ?? null,
+        suggestedCandidates,
         fixedExpenseMonth: matched?.fixed_expense_month
           ? String(matched.fixed_expense_month).slice(0, 7)
           : null,
@@ -1993,19 +2013,27 @@ async function applyFixedExpense(
     throw new ApiError(400, 'VALIDATION_ERROR', '종료월보다 이후 달에는 반영할 수 없습니다.')
   }
 
-  const { data: existingData, error: existingError } = await db()
+  const { data: existingRows, error: existingError } = await db()
     .from('transactions')
     .select('*')
     .eq('household_id', householdId)
     .eq('fixed_expense_id', id)
-    .eq('fixed_expense_month', `${month}-01`)
     .eq('status', 'active')
-    .maybeSingle()
 
   if (existingError) throw dbError(existingError)
 
-  if (existingData) {
-    const existing = existingData as Record<string, unknown>
+  // fixed_expense_month가 비어 있는 예전 행은 거래 날짜의 월로 보정해 매칭한다.
+  const existingLinked = ((existingRows ?? []) as Record<string, unknown>[]).find(
+    (row) => {
+      const linkedMonth = row.fixed_expense_month
+        ? String(row.fixed_expense_month).slice(0, 7)
+        : String(row.date ?? '').slice(0, 7)
+      return linkedMonth === month
+    },
+  )
+
+  if (existingLinked) {
+    const existing = existingLinked
     const hasOverride =
       body.date !== undefined ||
       body.amount !== undefined ||
@@ -2048,6 +2076,9 @@ async function applyFixedExpense(
         ? '계좌이체'
         : card.paymentMethod ?? '계좌이체'
       : card.paymentMethod
+    const usesCard = ['신용카드', '체크카드', '간편결제'].includes(
+      normalizedPaymentMethod ?? '',
+    )
     const { data, error } = await db()
       .from('transactions')
       .update({
@@ -2055,12 +2086,13 @@ async function applyFixedExpense(
         merchant: input.merchant,
         amount: input.amount,
         category_id: appCategory,
-        card_id: savings ? null : card.cardId,
+        card_id: usesCard ? card.cardId : null,
         memo: input.memo,
         note: input.note,
         excluded: savings || input.categoryMajor !== '생활비',
         payment_method: normalizedPaymentMethod,
         category_group: category.category_group,
+        fixed_expense_month: `${month}-01`,
         source: 'muse',
         updated_by: 'muse',
       })
@@ -2072,6 +2104,66 @@ async function applyFixedExpense(
     return dataResponse({
       ...toApiTransaction(data as Record<string, unknown>),
       created: false,
+    })
+  }
+
+  // 사용자가 확인한 기존 거래에 연결한다. 기존 거래를 취소하거나 새로 만들지 않는다.
+  const linkTransactionId =
+    body.linkTransactionId !== undefined && body.linkTransactionId !== null
+      ? String(body.linkTransactionId)
+      : null
+  if (linkTransactionId) {
+    const candidate = await fetchTransaction(householdId, linkTransactionId)
+    if (!candidate) {
+      throw new ApiError(404, 'NOT_FOUND', '연결할 거래를 찾을 수 없습니다.')
+    }
+    if (candidate.status === 'canceled') {
+      throw new ApiError(409, 'CONFLICT', '취소된 거래에는 연결할 수 없습니다.')
+    }
+    if (candidate.fixed_expense_id) {
+      throw new ApiError(
+        409,
+        'CONFLICT',
+        '이미 다른 고정지출에 연결된 거래입니다.',
+      )
+    }
+
+    const candidateMonth = String(candidate.date ?? '').slice(0, 7)
+    if (candidateMonth !== month) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        '연결할 거래의 날짜가 대상 월과 다릅니다.',
+        { linkTransactionId: `${candidateMonth} 거래는 ${month}에 연결할 수 없습니다.` },
+      )
+    }
+
+    const { data, error } = await db()
+      .from('transactions')
+      .update({
+        fixed_expense_id: id,
+        fixed_expense_month: `${month}-01`,
+        updated_by: 'muse',
+      })
+      .eq('household_id', householdId)
+      .eq('id', linkTransactionId)
+      .eq('status', 'active')
+      .is('fixed_expense_id', null)
+      .select('*')
+      .maybeSingle()
+
+    if (error) throw dbError(error)
+    if (!data) {
+      throw new ApiError(
+        409,
+        'CONFLICT',
+        '연결할 수 있는 거래가 없습니다. 이미 연결되었거나 취소되었을 수 있습니다.',
+      )
+    }
+    return dataResponse({
+      ...toApiTransaction(data as Record<string, unknown>),
+      created: false,
+      linked: true,
     })
   }
 
@@ -2109,6 +2201,9 @@ async function applyFixedExpense(
       ? '계좌이체'
       : card.paymentMethod ?? '계좌이체'
     : card.paymentMethod
+  const usesCard = ['신용카드', '체크카드', '간편결제'].includes(
+    normalizedPaymentMethod ?? '',
+  )
 
   const { data, error } = await db()
     .from('transactions')
@@ -2121,7 +2216,7 @@ async function applyFixedExpense(
       category_id: savings
         ? 'savings'
         : existingFixed.category_id ?? appCategoryId(input.categoryMajor, input.categoryMinor),
-      card_id: savings ? null : card.cardId,
+      card_id: usesCard ? card.cardId : null,
       memo: input.memo,
       excluded: savings || input.categoryMajor !== '생활비',
       category_major: input.categoryMajor,

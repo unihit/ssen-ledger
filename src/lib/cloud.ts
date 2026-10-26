@@ -75,6 +75,8 @@ export interface CloudSnapshot {
   hasAnyTransaction: boolean
   fixedExpenses: FixedExpense[]
   fixedExpenseApplications: FixedExpenseApplication[]
+  /** 고정지출에 아직 연결되지 않은 활성 거래. 후보 확인용으로만 사용합니다. */
+  unlinkedTransactions: Transaction[]
 }
 
 function sheetMinorFor(categoryId: Transaction['categoryId']): string {
@@ -242,6 +244,8 @@ function toTransaction(row: TransactionRow): Transaction {
 
 function fromTransaction(householdId: string, transaction: Transaction) {
   const normalized = withSavingsDefaults(transaction)
+  const paymentMethod = paymentMethodFor(normalized)
+  const usesCard = ['신용카드', '체크카드', '간편결제'].includes(paymentMethod)
   return {
     household_id: householdId,
     id: normalized.id,
@@ -249,7 +253,7 @@ function fromTransaction(householdId: string, transaction: Transaction) {
     merchant: normalized.merchant,
     amount: normalized.amount,
     category_id: normalized.categoryId,
-    card_id: normalized.cardId,
+    card_id: usesCard ? normalized.cardId : null,
     memo: normalized.memo ?? null,
     excluded: normalized.excluded ?? false,
     category_major: normalized.categoryMajor ?? '생활비',
@@ -257,10 +261,10 @@ function fromTransaction(householdId: string, transaction: Transaction) {
       normalized.categoryMinor ?? sheetMinorFor(normalized.categoryId),
     category_group: normalized.categoryGroup ?? '생활비',
     correction: normalized.correction ?? 0,
-    payment_method: paymentMethodFor(normalized),
+    payment_method: paymentMethod,
     note: normalized.note ?? null,
     status: normalized.status ?? 'active',
-    source: 'app',
+    source: normalized.source ?? 'app',
     updated_by: 'app',
     fixed_expense_id: normalized.fixedExpenseId ?? null,
     fixed_expense_month: normalized.fixedExpenseMonth
@@ -362,6 +366,12 @@ export async function loadCloudState(
       toFixedExpense,
     ),
     fixedExpenseApplications: [...applicationMap.values()],
+    unlinkedTransactions: transactions
+      .filter(
+        (row) =>
+          (row.status ?? 'active') === 'active' && !row.fixed_expense_id,
+      )
+      .map(toTransaction),
   }
 }
 
@@ -421,6 +431,32 @@ export async function findActiveFixedExpenseTransaction(
   })
 
   return row ? { id: String(row.id) } : null
+}
+
+/** 사용자가 고른 기존 거래를 고정지출에 연결한다. 거래 내용은 그대로 둔다. */
+export async function linkFixedExpenseTransactionRemote(
+  householdId: string,
+  transactionId: string,
+  fixedExpenseId: string,
+  month: string,
+): Promise<void> {
+  const { data, error } = await requireSupabase()
+    .from('transactions')
+    .update({
+      fixed_expense_id: fixedExpenseId,
+      fixed_expense_month: `${month}-01`,
+      updated_by: 'app',
+    })
+    .eq('household_id', householdId)
+    .eq('id', transactionId)
+    .eq('status', 'active')
+    .is('fixed_expense_id', null)
+    .select('id')
+
+  if (error) throw error
+  if (!data || data.length === 0) {
+    throw new Error('연결할 수 있는 거래를 찾지 못했어요. 새로고침 후 다시 시도해 주세요.')
+  }
 }
 
 export async function deleteTransactionRemote(

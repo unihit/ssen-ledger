@@ -425,7 +425,7 @@ export function SettingsPage() {
                       {isSavingsFixedExpense(fixedExpense)
                         ? '저축'
                         : category.label}{' '}
-                      · {card?.name ?? '현금·계좌'}
+                      · {card?.name ?? fixedExpense.paymentMethod ?? '현금·계좌'}
                     </span>
                     <small>
                       {isSavingsFixedExpense(fixedExpense) ? '저축 · ' : ''}

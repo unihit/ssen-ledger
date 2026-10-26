@@ -5,6 +5,7 @@ import { CATEGORIES, categoryOf, isSavingsCategory } from '../data/categories'
 import { benefitRuleForTransaction } from '../lib/benefits'
 import { formatDateKo, formatDateShort, todayISO } from '../lib/date'
 import {
+  fixedExpenseCandidates,
   fixedExpenseDayLabel,
   fixedExpenseStatus,
   fixedExpensesForMonth,
@@ -21,10 +22,15 @@ export function LedgerPage({
   onAdd,
   onEdit,
   onApplyFixedExpense,
+  onLinkFixedExpense,
 }: {
   onAdd: () => void
   onEdit: (transaction: Transaction) => void
-  onApplyFixedExpense: (fixedExpense: FixedExpense) => void
+  onApplyFixedExpense: (
+    fixedExpense: FixedExpense,
+    candidates?: Transaction[],
+  ) => void
+  onLinkFixedExpense: (fixedExpense: FixedExpense, transactionId: string) => void
 }) {
   const {
     state,
@@ -32,6 +38,8 @@ export function LedgerPage({
     setMonth,
     fixedExpenses,
     fixedExpenseApplications,
+    unlinkedTransactions,
+    cloudEnabled,
   } = useApp()
   const [categoryFilter, setCategoryFilter] = useState<'all' | (typeof CATEGORIES)[number]['id']>(
     'all',
@@ -117,6 +125,12 @@ export function LedgerPage({
   const fixedItems = fixedExpensesForMonth(fixedExpenses, month).map(
     (fixedExpense) => ({
       fixedExpense,
+      candidates: fixedExpenseCandidates(
+        fixedExpense,
+        month,
+        cloudEnabled ? unlinkedTransactions : state.transactions,
+        fixedExpenseApplications,
+      ),
       ...fixedExpenseStatus(
         fixedExpense,
         month,
@@ -239,6 +253,7 @@ export function LedgerPage({
                   dueDate,
                   application,
                   dDayLabel,
+                  candidates,
                 }) => {
                   const category = categoryOf(fixedExpense.categoryId)
                   const card = fixedExpense.cardId
@@ -277,7 +292,10 @@ export function LedgerPage({
                           {isSavingsFixedExpense(fixedExpense)
                             ? '저축'
                             : category.label}{' '}
-                          · {card?.name ?? '현금·계좌'}
+                          ·{' '}
+                          {card?.name ??
+                            fixedExpense.paymentMethod ??
+                            '현금·계좌'}
                         </span>
                         <small>
                           {status === 'recorded'
@@ -286,6 +304,39 @@ export function LedgerPage({
                               )} 반영`
                             : `${formatDateShort(dueDate)} 예정`}
                         </small>
+                        {status !== 'recorded' && candidates.length > 0 && (
+                          <div className="fixed-candidates">
+                            <span className="fixed-candidates__title">
+                              같은 날짜·금액 거래가 이미 있어요
+                            </span>
+                            <ul>
+                              {candidates.map((candidate) => (
+                                <li key={candidate.id}>
+                                  <span>
+                                    {candidate.merchant} ·{' '}
+                                    {categoryOf(candidate.categoryId).label} ·{' '}
+                                    {won(candidate.amount)}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="btn btn--tiny btn--ghost"
+                                    onClick={() =>
+                                      onLinkFixedExpense(
+                                        fixedExpense,
+                                        candidate.id,
+                                      )
+                                    }
+                                  >
+                                    이 거래 연결
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                            <small>
+                              연결하지 않고 새 거래로 반영할 수도 있어요.
+                            </small>
+                          </div>
+                        )}
                       </div>
                       <div className="fixed-row__side">
                         <strong>{won(fixedExpense.amount)}</strong>
@@ -297,7 +348,9 @@ export function LedgerPage({
                           <button
                             type="button"
                             className="btn btn--tiny btn--primary"
-                            onClick={() => onApplyFixedExpense(fixedExpense)}
+                            onClick={() =>
+                              onApplyFixedExpense(fixedExpense, candidates)
+                            }
                           >
                             반영
                           </button>
@@ -427,6 +480,9 @@ export function LedgerPage({
                           <span className="tx__main">
                             <span className="tx__merchant">
                               {displayName}
+                              {transaction.source === 'seed' && (
+                                <Badge tone="warn">테스트</Badge>
+                              )}
                               {savings ? (
                                 <Badge tone="success">저축</Badge>
                               ) : (

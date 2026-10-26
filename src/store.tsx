@@ -26,6 +26,7 @@ import {
   deleteTransactionRemote,
   findActiveFixedExpenseTransaction,
   getHouseholdInitialized,
+  linkFixedExpenseTransactionRemote,
   loadCloudState,
   markHouseholdInitialized,
   replaceCloudState,
@@ -196,6 +197,8 @@ interface AppContextValue {
   syncError: string
   fixedExpenses: FixedExpense[]
   fixedExpenseApplications: FixedExpenseApplication[]
+  /** 고정지출에 연결되지 않은 활성 거래 (후보 확인용) */
+  unlinkedTransactions: Transaction[]
   addTransaction: (input: Omit<Transaction, 'id'>) => void
   updateTransaction: (transaction: Transaction) => void
   deleteTransaction: (id: string) => void
@@ -207,6 +210,10 @@ interface AppContextValue {
   addFixedExpense: (fixedExpense: FixedExpense) => void
   updateFixedExpense: (fixedExpense: FixedExpense) => void
   deleteFixedExpense: (id: string) => void
+  linkFixedExpenseTransaction: (
+    fixedExpense: FixedExpense,
+    transactionId: string,
+  ) => Promise<{ ok: boolean; message: string }>
   applyFixedExpense: (
     fixedExpense: FixedExpense,
     input: {
@@ -218,6 +225,8 @@ interface AppContextValue {
       cardId?: string | null
       paymentMethod?: string
       excluded?: boolean
+      /** 사용자가 고른 기존 거래에 연결해 반영 */
+      linkTransactionId?: string
     },
   ) => Promise<{ ok: boolean; message: string }>
   resetToInitial: () => void
@@ -245,6 +254,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [fixedExpenseApplications, setFixedExpenseApplications] = useState<
     FixedExpenseApplication[]
   >(() => loadFixedExpenseData(householdId).fixedExpenseApplications)
+  const [unlinkedTransactions, setUnlinkedTransactions] = useState<Transaction[]>(
+    [],
+  )
   const stateRef = useRef(state)
   const bulkSyncRef = useRef(false)
   const settingsDirtyRef = useRef(false)
@@ -306,6 +318,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         setFixedExpenses(cloud.fixedExpenses)
         setFixedExpenseApplications(cloud.fixedExpenseApplications)
+        setUnlinkedTransactions(cloud.unlinkedTransactions)
 
         if (
           !initialized &&
@@ -389,6 +402,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
       setFixedExpenses(next.fixedExpenses)
       setFixedExpenseApplications(next.fixedExpenseApplications)
+      setUnlinkedTransactions(next.unlinkedTransactions)
       setSyncState('synced')
       setSyncError('')
     } catch (error) {
@@ -802,6 +816,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         cardId?: string | null
         paymentMethod?: string
         excluded?: boolean
+        linkTransactionId?: string
       },
     ) => {
       const month = input.date.slice(0, 7)
@@ -825,7 +840,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           (tx) =>
             (tx.id === existingApplication.transactionId ||
               (tx.fixedExpenseId === fixedExpense.id &&
-                tx.date.startsWith(month))) &&
+                tx.fixedExpenseMonth === month)) &&
             (tx.status ?? 'active') !== 'canceled',
         )
 
@@ -857,8 +872,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         : fixedExpense.categoryGroup
       const categoryId = savings ? 'savings' : fixedExpense.categoryId
 
-      // 이미 반영된 거래가 있으면 새로 만들지 않고 그 거래를 갱신한다.
-      // 로컬 목록이 오래되어 반영 버튼이 다시 보이는 경우에도 중복 거래가 생기지 않는다.
+      // 매칭은 `fixed_expense_id + fixed_expense_month`만 신뢰한다.
+      // 같은 날짜·금액이라도 연결되지 않은 거래는 자동으로 잡지 않고 후보로만 보여준다.
       let existingId: string | null = null
       if (hid) {
         try {
@@ -873,6 +888,95 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ok: false,
             message: `이미 반영된 거래를 확인하지 못했어요. ${errorMessage(error)}`,
           }
+        }
+      }
+
+      // 사용자가 후보 거래에 연결하기로 한 경우: 기존 거래 내용은 그대로 두고 연결 정보만 붙인다.
+      if (!existingId && input.linkTransactionId) {
+        const candidate =
+          unlinkedTransactions.find(
+            (item) => item.id === input.linkTransactionId,
+          ) ??
+          state.transactions.find(
+            (item) => item.id === input.linkTransactionId,
+          )
+        if (!candidate) {
+          return {
+            ok: false,
+            message: '연결할 거래를 찾지 못했어요. 새로고침 후 다시 시도해 주세요.',
+          }
+        }
+        if (candidate.fixedExpenseId) {
+          return {
+            ok: false,
+            message: '이미 다른 고정지출에 연결된 거래예요.',
+          }
+        }
+        if (candidate.date.slice(0, 7) !== month) {
+          return {
+            ok: false,
+            message: '연결할 거래의 날짜가 반영 월과 달라요. 날짜를 확인해 주세요.',
+          }
+        }
+
+        // 연결은 기존 거래 필드를 그대로 두고 고정지출 연결 정보만 붙인다.
+        const linked = {
+          ...candidate,
+          fixedExpenseId: fixedExpense.id,
+          fixedExpenseMonth: month,
+        }
+
+        setState((current) => ({
+          ...current,
+          transactions: current.transactions.some(
+            (item) => item.id === linked.id,
+          )
+            ? current.transactions.map((item) =>
+                item.id === linked.id ? linked : item,
+              )
+            : current.transactions,
+        }))
+
+        setFixedExpenseApplications((current) => [
+          ...current.filter(
+            (application) =>
+              !(
+                application.fixedExpenseId === fixedExpense.id &&
+                application.month === month
+              ) && application.transactionId !== linked.id,
+          ),
+          {
+            fixedExpenseId: fixedExpense.id,
+            month,
+            transactionId: linked.id,
+            date: linked.date,
+            amount: linked.amount,
+          },
+        ])
+
+        if (!hid) {
+          return { ok: true, message: '기존 거래에 연결했어요.' }
+        }
+
+        setSyncState('syncing')
+        setSyncError('')
+        try {
+          await linkFixedExpenseTransactionRemote(
+            hid,
+            linked.id,
+            fixedExpense.id,
+            month,
+          )
+          await refreshFromCloud()
+          setSyncState('synced')
+          setSyncError('')
+          return { ok: true, message: '기존 거래에 연결했어요.' }
+        } catch (error) {
+          const message = errorMessage(error)
+          setSyncState('error')
+          setSyncError(message)
+          await refreshFromCloud()
+          return { ok: false, message }
         }
       }
 
@@ -951,9 +1055,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setSyncError('')
       try {
         await saveTransactionRemote(hid, transaction)
+        // 저장 직후 클라우드 상태를 다시 읽어 버튼·목록이 즉시 맞도록 한다.
+        await refreshFromCloud()
         setSyncState('synced')
         setSyncError('')
-        void refreshFromCloud()
         return {
           ok: true,
           message: existingId
@@ -974,7 +1079,94 @@ export function AppProvider({ children }: { children: ReactNode }) {
       householdId,
       refreshFromCloud,
       state.transactions,
+      unlinkedTransactions,
     ],
+  )
+
+  /** 사용자가 확인한 기존 거래를 고정지출에 연결한다. */
+  const linkFixedExpenseTransaction = useCallback(
+    async (
+      fixedExpense: FixedExpense,
+      transactionId: string,
+    ): Promise<{ ok: boolean; message: string }> => {
+      const hid = householdId
+      const candidate =
+        unlinkedTransactions.find((item) => item.id === transactionId) ??
+        stateRef.current.transactions.find((item) => item.id === transactionId)
+
+      if (!candidate) {
+        return { ok: false, message: '연결할 거래를 찾지 못했어요.' }
+      }
+      if (candidate.fixedExpenseId) {
+        return { ok: false, message: '이미 다른 고정지출에 연결된 거래예요.' }
+      }
+      if (hid && !cloudReady) {
+        return {
+          ok: false,
+          message: '가계부 데이터를 불러오는 중이에요. 잠시 후 다시 시도해 주세요.',
+        }
+      }
+
+      const month = candidate.date.slice(0, 7)
+      // 연결은 기존 거래 필드를 그대로 두고 고정지출 연결 정보만 붙인다.
+      const linked = {
+        ...candidate,
+        fixedExpenseId: fixedExpense.id,
+        fixedExpenseMonth: month,
+      }
+
+      setState((current) => ({
+        ...current,
+        transactions: current.transactions.map((item) =>
+          item.id === linked.id ? linked : item,
+        ),
+      }))
+      setFixedExpenseApplications((current) => [
+        ...current.filter(
+          (application) =>
+            !(
+              application.fixedExpenseId === fixedExpense.id &&
+              application.month === month
+            ) && application.transactionId !== linked.id,
+        ),
+        {
+          fixedExpenseId: fixedExpense.id,
+          month,
+          transactionId: linked.id,
+          date: linked.date,
+          amount: linked.amount,
+        },
+      ])
+      setUnlinkedTransactions((current) =>
+        current.filter((item) => item.id !== linked.id),
+      )
+
+      if (!hid) {
+        return { ok: true, message: '기존 거래에 연결했어요.' }
+      }
+
+      setSyncState('syncing')
+      setSyncError('')
+      try {
+        await linkFixedExpenseTransactionRemote(
+          hid,
+          linked.id,
+          fixedExpense.id,
+          month,
+        )
+        await refreshFromCloud()
+        setSyncState('synced')
+        setSyncError('')
+        return { ok: true, message: '기존 거래에 연결했어요.' }
+      } catch (error) {
+        const message = errorMessage(error)
+        setSyncState('error')
+        setSyncError(message)
+        await refreshFromCloud()
+        return { ok: false, message }
+      }
+    },
+    [cloudReady, householdId, refreshFromCloud, unlinkedTransactions],
   )
 
   const resetToInitial = useCallback(() => {
@@ -1051,6 +1243,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       syncError,
       fixedExpenses,
       fixedExpenseApplications,
+      unlinkedTransactions,
       addTransaction,
       updateTransaction,
       deleteTransaction,
@@ -1062,6 +1255,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addFixedExpense,
       updateFixedExpense,
       deleteFixedExpense,
+      linkFixedExpenseTransaction,
       applyFixedExpense,
       resetToInitial,
       clearAll,
@@ -1078,6 +1272,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       syncError,
       fixedExpenses,
       fixedExpenseApplications,
+      unlinkedTransactions,
       addTransaction,
       updateTransaction,
       deleteTransaction,
@@ -1089,6 +1284,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addFixedExpense,
       updateFixedExpense,
       deleteFixedExpense,
+      linkFixedExpenseTransaction,
       applyFixedExpense,
       resetToInitial,
       clearAll,

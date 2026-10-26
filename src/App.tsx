@@ -26,11 +26,12 @@ const TABS: { id: Tab; label: string; icon: IconName }[] = [
 ]
 
 export default function App() {
-  const { month } = useApp()
+  const { month, linkFixedExpenseTransaction } = useApp()
   const [tab, setTab] = useState<Tab>('home')
   const [editor, setEditor] = useState<{
     transaction?: Transaction
     fixedExpense?: FixedExpense
+    candidates?: Transaction[]
   } | null>(null)
 
   useEffect(() => {
@@ -39,8 +40,18 @@ export default function App() {
 
   const openAdd = () => setEditor({})
   const openEdit = (transaction: Transaction) => setEditor({ transaction })
-  const openFixedExpense = (fixedExpense: FixedExpense) =>
-    setEditor({ fixedExpense })
+  const openFixedExpense = (
+    fixedExpense: FixedExpense,
+    candidates?: Transaction[],
+  ) => setEditor({ fixedExpense, candidates })
+
+  const handleLinkFixedExpense = async (
+    fixedExpense: FixedExpense,
+    transactionId: string,
+  ) => {
+    const result = await linkFixedExpenseTransaction(fixedExpense, transactionId)
+    if (!result.ok) window.alert(result.message)
+  }
 
   const nav = (mobile: boolean) => (
     <nav
@@ -92,6 +103,7 @@ export default function App() {
               onAdd={openAdd}
               onEdit={openEdit}
               onApplyFixedExpense={openFixedExpense}
+              onLinkFixedExpense={handleLinkFixedExpense}
             />
           )}
           {tab === 'cards' && <CardsPage />}
@@ -120,6 +132,7 @@ export default function App() {
           }
           initial={editor.transaction}
           fixedExpense={editor.fixedExpense}
+          candidates={editor.candidates}
           month={month}
           onClose={() => setEditor(null)}
         />

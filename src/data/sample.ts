@@ -18,6 +18,7 @@ export const DEFAULT_PREV_MONTH_TRANSACTIONS: Transaction[] = [
     categoryMinor: '마트',
     memo: '9월 실적 충족 (100만 구간 · 통합한도 6만)',
     status: 'active',
+    source: 'seed',
   },
   {
     id: 'sample-prev-mg-honey',
@@ -31,6 +32,7 @@ export const DEFAULT_PREV_MONTH_TRANSACTIONS: Transaction[] = [
     categoryMinor: '쇼핑',
     memo: '9월 실적 충족 (10만 기준)',
     status: 'active',
+    source: 'seed',
   },
   {
     id: 'sample-prev-woori-skt',
@@ -44,6 +46,7 @@ export const DEFAULT_PREV_MONTH_TRANSACTIONS: Transaction[] = [
     categoryMinor: '통신',
     memo: '9월 실적 충족 (30만 기준)',
     status: 'active',
+    source: 'seed',
   },
 ]
 

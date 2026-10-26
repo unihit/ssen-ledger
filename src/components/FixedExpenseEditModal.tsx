@@ -83,9 +83,35 @@ export function FixedExpenseEditModal({
   )
   const [error, setError] = useState('')
   const savingsDraft = isSavingsCategory(draft.categoryId)
+  const cardApplicable =
+    !savingsDraft &&
+    ['신용카드', '체크카드', '간편결제'].includes(draft.paymentMethod ?? '')
 
   const patch = (changes: Partial<FixedExpense>) =>
     setDraft((current) => ({ ...current, ...changes }))
+
+  const handlePaymentMethodChange = (paymentMethod: string) => {
+    const selected = draft.cardId
+      ? state.cards.find((card) => card.id === draft.cardId)
+      : undefined
+    const needsKind =
+      paymentMethod === '신용카드'
+        ? 'credit'
+        : paymentMethod === '체크카드'
+          ? 'check'
+          : null
+    const isCardMethod = ['신용카드', '체크카드', '간편결제'].includes(
+      paymentMethod,
+    )
+    patch({
+      paymentMethod,
+      cardId: !isCardMethod
+        ? null
+        : needsKind && selected && selected.kind !== needsKind
+          ? null
+          : draft.cardId,
+    })
+  }
 
   const handleCardChange = (cardId: string) => {
     const card = state.cards.find((item) => item.id === cardId)
@@ -121,6 +147,29 @@ export function FixedExpenseEditModal({
         ? '자동이체'
         : draft.paymentMethod ?? '자동이체'
       : draft.paymentMethod
+    const needsKind =
+      paymentMethod === '신용카드'
+        ? 'credit'
+        : paymentMethod === '체크카드'
+          ? 'check'
+          : null
+    if (needsKind) {
+      const selected = draft.cardId
+        ? state.cards.find((card) => card.id === draft.cardId)
+        : undefined
+      if (!selected) {
+        setError('결제 카드를 선택해 주세요.')
+        return
+      }
+      if (selected.kind !== needsKind) {
+        setError(
+          paymentMethod === '신용카드'
+            ? '신용카드를 선택해 주세요.'
+            : '체크카드를 선택해 주세요.',
+        )
+        return
+      }
+    }
 
     const next: FixedExpense = {
       ...draft,
@@ -135,7 +184,10 @@ export function FixedExpenseEditModal({
       categoryGroup: savings
         ? SAVINGS_SHEET.categoryGroup
         : categoryGroupForMajor(draft.categoryMajor.trim() || '생활비'),
-      cardId: savings ? null : draft.cardId,
+      cardId:
+        savings || !['신용카드', '체크카드', '간편결제'].includes(paymentMethod ?? '')
+          ? null
+          : draft.cardId,
       paymentMethod,
       dayOfMonth: Math.min(31, Math.max(1, Math.round(draft.dayOfMonth))),
       startMonth: draft.startMonth || undefined,
@@ -350,36 +402,12 @@ export function FixedExpenseEditModal({
             />
           </div>
           <div className="field">
-            <label htmlFor="fixed-card">결제 카드</label>
-            <select
-              id="fixed-card"
-              value={draft.cardId ?? ''}
-              disabled={savingsDraft}
-              onChange={(event) => handleCardChange(event.target.value)}
-            >
-              <option value="">현금·계좌</option>
-              {state.cards.map((card) => (
-                <option key={card.id} value={card.id}>
-                  {card.name}
-                </option>
-              ))}
-            </select>
-            {savingsDraft && (
-              <span className="field__hint">
-                저축은 카드 실적·혜택과 무관하게 계좌이체로 기록돼요.
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="field-row">
-          <div className="field">
             <label htmlFor="fixed-method">결제수단</label>
             <select
               id="fixed-method"
               value={draft.paymentMethod ?? '자동이체'}
               onChange={(event) =>
-                patch({ paymentMethod: event.target.value })
+                handlePaymentMethodChange(event.target.value)
               }
             >
               {PAYMENT_METHODS.map((method) => (
@@ -388,7 +416,32 @@ export function FixedExpenseEditModal({
                 </option>
               ))}
             </select>
+            {!cardApplicable && (
+              <span className="field__hint">
+                카드가 아닌 결제라 카드 실적·혜택을 계산하지 않아요.
+              </span>
+            )}
           </div>
+        </div>
+
+        <div className="field-row">
+          {cardApplicable && (
+            <div className="field">
+              <label htmlFor="fixed-card">결제 카드</label>
+              <select
+                id="fixed-card"
+                value={draft.cardId ?? ''}
+                onChange={(event) => handleCardChange(event.target.value)}
+              >
+                <option value="">카드 선택</option>
+                {state.cards.map((card) => (
+                  <option key={card.id} value={card.id}>
+                    {card.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="field">
             <label htmlFor="fixed-start">시작월 (선택)</label>
             <input

@@ -149,6 +149,7 @@ curl.exe https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/health
 | `status` | — | `active` / `canceled` |
 | `fixedExpenseId` | — | 고정지출 템플릿에서 반영된 경우 해당 ID |
 | `fixedExpenseMonth` | — | 고정지출 대상 월 (`YYYY-MM`) |
+| `source` | — | 데이터 출처. `seed`는 샘플/테스트 데이터, `app`은 앱 입력, `muse`는 Agent API 입력 |
 | `inputStatus` | K | 응답 전용. 현재는 `정상` |
 | `reviewAlerts` | L | `검토: 미래 날짜`, `검토: 중복 후보` 배열 |
 
@@ -411,6 +412,7 @@ curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses
         "candidateStatus": "예정",
         "candidateTransactionId": null,
         "matchedTransactionId": null,
+        "suggestedCandidates": [],
         "fixedExpenseMonth": null
       }
     ]
@@ -418,14 +420,18 @@ curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses
 }
 ```
 
+`suggestedCandidates`는 아직 고정지출에 연결되지 않았지만 **예정일과 금액이 같은** 활성 거래 목록입니다. 자동으로 연결하지 않으며, 사용자가 확인한 뒤 `apply`에 `linkTransactionId`로 지정해야 연결됩니다. 각 항목은 `id`, `date`, `merchant`, `amount`, `categoryMajor`, `categoryMinor`, `linkHint`를 가집니다.
+
 `candidateStatus`:
 
-- `기록됨`: 해당 월에 연결된 활성 거래가 있음 (`candidateTransactionId` 확인)
+- `기록됨`: 해당 월에 `fixed_expense_id`+`fixed_expense_month`로 연결된 활성 거래가 있음 (`candidateTransactionId` 확인)
 - `예정`: 후보일이 오늘(한국 시간) 이후
-- `반영 후보`: 후보일이 지났지만 거래가 없음
+- `반영 후보`: 후보일이 지났지만 연결된 거래가 없음
 - `기간·일자 확인`: 반영일이 올바르지 않음
 
 `definitionId`는 `id`와 같은 템플릿 ID의 별칭입니다. `date`는 해당 월의 예정 반영일이고, `candidateDate`는 실제로 연결된 거래가 있으면 그 거래 날짜입니다. `matchedTransactionId`는 `candidateTransactionId`의 별칭입니다.
+
+매칭 기준은 **`fixedExpenseId` + 대상 월**뿐입니다. 같은 날짜·금액의 거래가 있어도 연결 정보가 없으면 `기록됨`으로 판정하지 않고 `suggestedCandidates`에만 넣습니다.
 
 `dayOfMonth: 31`은 그 달의 **말일**을 뜻합니다. 2월이면 28/29일, 4월이면 30일로 계산됩니다.
 
@@ -482,7 +488,20 @@ curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-
   -d '{ "month": "2026-10" }'
 ```
 
-`apply`는 해당 월의 후보일(말일 포함)에 맞춰 거래를 만들고, `fixedExpenseId`/`fixedExpenseMonth`를 거래에 연결합니다. 같은 달에 다시 호출하면 새 거래를 만들지 않고 기존 거래를 반환합니다(`created: false`).
+`apply`는 해당 월의 후보일(말일 포함)에 맞춰 거래를 만들고, `fixedExpenseId`/`fixedExpenseMonth`를 거래에 연결합니다. 같은 달에 이미 연결된 활성 거래가 있으면 새 거래를 만들지 않고 그 거래를 반환합니다(`created: false`).
+
+**기존 거래를 취소하지 않습니다.** 새 거래를 만들거나, 사용자가 고른 후보 거래에 연결 정보만 붙입니다. 같은 날짜·금액이라는 이유로 다른 거래를 자동 취소·교체하지 않습니다.
+
+이미 있는 미연결 거래에 연결하려면 `linkTransactionId`를 보냅니다. 이때 거래의 날짜·금액·가맹점·분류는 기존 값을 유지하고 `fixed_expense_id`/`fixed_expense_month`만 추가합니다.
+
+```bash
+curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses/<ID>/apply" \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "month": "2026-10", "linkTransactionId": "<transaction-uuid>" }'
+```
+
+`linkTransactionId`가 이미 다른 고정지출에 연결됐거나 취소된 거래면 `409 CONFLICT`를 반환합니다.
 
 실제 결제일이 템플릿의 반영일과 다르면 `date`를 함께 보냅니다. 예를 들어 보험료가 10월 30일에 결제됐다면:
 
@@ -500,6 +519,7 @@ curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-
 - `fixedExpenseId`: 연결된 고정지출 ID
 - `fixedExpenseMonth`: 대상 월 (`YYYY-MM`)
 - `created`: 이번 호출에서 새로 만들었으면 `true`, 기존 거래를 반환/수정했으면 `false`
+- `linked`: `linkTransactionId`로 기존 거래에 연결한 경우 `true`
 
 ### 6-5. 변경 이력
 

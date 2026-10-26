@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { CATEGORIES, isSavingsCategory } from '../data/categories'
 import {
   CARD_PAYMENT_METHODS,
@@ -8,6 +8,7 @@ import {
   paymentMethodOptions,
 } from '../data/paymentMethods'
 import { recommendCards } from '../lib/benefits'
+import { findManualDuplicates } from '../lib/duplicates'
 import { fixedExpenseDueDate } from '../lib/fixedExpenses'
 import { todayISO } from '../lib/date'
 import { won } from '../lib/format'
@@ -26,11 +27,13 @@ function defaultDateFor(month: string): string {
 export function TransactionModal({
   initial,
   fixedExpense,
+  candidates = [],
   month,
   onClose,
 }: {
   initial?: Transaction
   fixedExpense?: FixedExpense
+  candidates?: Transaction[]
   month: string
   onClose: () => void
 }) {
@@ -84,11 +87,36 @@ export function TransactionModal({
   )
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [duplicates, setDuplicates] = useState<Transaction[]>([])
+  const [linkCandidateId, setLinkCandidateId] = useState<string | null>(
+    candidates[0]?.id ?? null,
+  )
+  // 후보가 있어도 기본은 새 거래로 반영한다. 연결은 사용자가 직접 선택한다.
+  const [useLinkedCandidate, setUseLinkedCandidate] = useState(false)
+
+  // 날짜·금액·분류를 바꾸면 이전 중복 경고는 더 이상 유효하지 않다.
+  useEffect(() => {
+    setDuplicates([])
+  }, [date, amount, categoryId])
 
   const numericAmount = Number(amount.replace(/[^\d]/g, '')) || 0
   const savingsCategory = isSavingsCategory(categoryId)
   const categoryLabel =
     CATEGORIES.find((category) => category.id === categoryId)?.label ?? '기타'
+  // 날짜·금액이 바뀌면 기존 후보와 더 이상 같은 거래가 아니므로 연결 대상에서 뺀다.
+  const matchingCandidates = candidates.filter(
+    (candidate) =>
+      candidate.date === date &&
+      (candidate.effectiveAmount ?? candidate.amount) === numericAmount,
+  )
+  const effectiveLinkCandidateId =
+    matchingCandidates.find((candidate) => candidate.id === linkCandidateId)?.id ??
+    matchingCandidates[0]?.id ??
+    null
+  // 자동이체·계좌이체·현금은 카드가 아니므로 카드 선택·혜택 계산 대상이 아니다.
+  const cardApplicable =
+    !savingsCategory &&
+    (CARD_PAYMENT_METHODS as readonly string[]).includes(paymentMethod)
 
   const handleCardChange = (nextCardId: string | null) => {
     setCardId(nextCardId)
@@ -110,9 +138,23 @@ export function TransactionModal({
     }
   }
 
+  const handlePaymentMethodChange = (method: string) => {
+    setPaymentMethod(method)
+    if (!(CARD_PAYMENT_METHODS as readonly string[]).includes(method)) {
+      setCardId(null)
+      return
+    }
+    // 신용/체크가 바뀌면 기존 카드 종류와 맞지 않을 수 있으므로 다시 고르게 한다.
+    if (method === '신용카드' && selectedCard?.kind === 'check') {
+      setCardId(null)
+    } else if (method === '체크카드' && selectedCard?.kind === 'credit') {
+      setCardId(null)
+    }
+  }
+
   const recommendations = useMemo(
     () =>
-      savingsCategory
+      savingsCategory || !cardApplicable
         ? []
         : recommendCards(state.cards, state.transactions, date.slice(0, 7), {
             categoryId,
@@ -126,6 +168,7 @@ export function TransactionModal({
       categoryId,
       numericAmount,
       savingsCategory,
+      cardApplicable,
       paymentMethod,
     ],
   )
@@ -150,9 +193,17 @@ export function TransactionModal({
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
+    await submit()
+  }
+
+  const submit = async (confirmDuplicate = false) => {
     if (saving) return
     if (numericAmount <= 0) {
       setError(savingsCategory ? '저축 금액을 입력해 주세요.' : '결제 금액을 입력해 주세요.')
+      return
+    }
+    if (cardApplicable && !cardId) {
+      setError('결제 카드를 선택하거나 결제수단을 계좌이체·현금으로 바꿔 주세요.')
       return
     }
     const effectiveCardId = savingsCategory ? null : cardId
@@ -187,6 +238,10 @@ export function TransactionModal({
           cardId: effectiveCardId,
           paymentMethod: effectivePaymentMethod,
           excluded: effectiveExcluded,
+          linkTransactionId:
+            useLinkedCandidate && effectiveLinkCandidateId
+              ? effectiveLinkCandidateId
+              : undefined,
         })
         if (!result.ok) {
           setError(result.message)
@@ -199,6 +254,22 @@ export function TransactionModal({
       }
       return
     }
+
+    // 같은 날짜·분류·금액 거래가 이미 있으면 저장 전에 한 번 더 확인한다.
+    if (!confirmDuplicate) {
+      const matches = findManualDuplicates(
+        state.transactions,
+        { date, amount: numericAmount, categoryId },
+        initial?.id,
+      )
+      if (matches.length > 0) {
+        setDuplicates(matches)
+        setError('')
+        return
+      }
+    }
+
+    setDuplicates([])
 
     if (initial) {
       const preservedSheetFields =
@@ -297,6 +368,90 @@ export function TransactionModal({
       }
     >
       <form id="transaction-form" className="form" onSubmit={handleSubmit}>
+        {fixedExpense && matchingCandidates.length > 0 && (
+          <div className="duplicate-panel" role="status">
+            <strong>같은 날짜·금액 거래가 이미 있어요</strong>
+            <p>
+              기존 거래에 연결하면 중복 없이 고정지출로 표시돼요. 연결하지
+              않으면 새 거래가 추가돼요.
+            </p>
+            <label className="duplicate-option">
+              <input
+                type="radio"
+                name="fixed-link-mode"
+                checked={useLinkedCandidate}
+                onChange={() => setUseLinkedCandidate(true)}
+              />
+              <span>
+                기존 거래에 연결
+                <small>금액·날짜·가맹점은 기존 기록을 그대로 둬요.</small>
+              </span>
+            </label>
+            {useLinkedCandidate && (
+              <ul className="duplicate-list">
+                {matchingCandidates.map((candidate) => (
+                  <li key={candidate.id}>
+                    <label>
+                      <input
+                        type="radio"
+                        name="fixed-link-target"
+                        checked={effectiveLinkCandidateId === candidate.id}
+                        onChange={() => setLinkCandidateId(candidate.id)}
+                      />
+                      <span>
+                        {candidate.merchant} · {candidate.date} ·{' '}
+                        {won(candidate.amount)}
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <label className="duplicate-option">
+              <input
+                type="radio"
+                name="fixed-link-mode"
+                checked={!useLinkedCandidate}
+                onChange={() => setUseLinkedCandidate(false)}
+              />
+              <span>새 거래로 반영</span>
+            </label>
+          </div>
+        )}
+
+        {duplicates.length > 0 && (
+          <div className="duplicate-panel duplicate-panel--warn" role="alert">
+            <strong>이미 있는 거래예요</strong>
+            <p>같은 날짜·분류·금액의 거래가 이미 있어요. 그래도 저장할까요?</p>
+            <ul className="duplicate-list">
+              {duplicates.map((duplicate) => (
+                <li key={duplicate.id}>
+                  <span>
+                    {duplicate.merchant} · {duplicate.date} ·{' '}
+                    {won(duplicate.amount)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="duplicate-panel__actions">
+              <button
+                type="button"
+                className="btn btn--tiny btn--ghost"
+                onClick={() => setDuplicates([])}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className="btn btn--tiny btn--primary"
+                onClick={() => void submit(true)}
+              >
+                그래도 저장
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="field field--amount">
           <label htmlFor="tx-amount">{savingsCategory ? '저축 금액' : '결제 금액'}</label>
           <div className="amount-input">
@@ -389,13 +544,57 @@ export function TransactionModal({
           )}
         </div>
 
-        <div className="field">
-          <label>결제 카드</label>
-          {savingsCategory ? (
+        {!savingsCategory && (
+          <div className="field">
+            <label>결제수단</label>
+            <div className="chip-row">
+              {paymentMethodOptions(selectedCard, initial?.paymentMethod).map(
+                (method) => {
+                  const active = paymentMethod === method
+                  return (
+                    <button
+                      key={method}
+                      type="button"
+                      className={`chip${active ? ' is-active' : ''}`}
+                      onClick={() => handlePaymentMethodChange(method)}
+                      style={
+                        active
+                          ? selectedCard
+                            ? {
+                                borderColor: selectedCard.colorFrom,
+                                background: `${selectedCard.colorFrom}14`,
+                              }
+                            : { borderColor: 'var(--accent)' }
+                          : undefined
+                      }
+                    >
+                      <span aria-hidden="true">{PAYMENT_METHOD_EMOJI[method]}</span>
+                      {method}
+                    </button>
+                  )
+                },
+              )}
+            </div>
+            <span className="field__hint">
+              {!cardApplicable
+                ? `${paymentMethod}은(는) 카드가 아니라 카드 실적·혜택 계산에 포함되지 않아요.`
+                : cardId === null
+                  ? '카드를 선택하면 혜택이 계산돼요.'
+                  : '간편결제 혜택(예: MG+ S 10%)은 간편결제를 선택해야 적용돼요.'}
+            </span>
+          </div>
+        )}
+
+        {savingsCategory ? (
+          <div className="field">
+            <label>결제 카드</label>
             <p className="field__hint">
               저축은 카드 실적·혜택과 무관하게 계좌이체로 기록돼요.
             </p>
-          ) : (
+          </div>
+        ) : cardApplicable ? (
+          <div className="field">
+            <label>결제 카드</label>
             <div className="chip-row">
               <button
                 type="button"
@@ -426,47 +625,8 @@ export function TransactionModal({
                 </button>
               ))}
             </div>
-          )}
-        </div>
-
-        {!savingsCategory && (
-          <div className="field">
-            <label>결제수단</label>
-            <div className="chip-row">
-              {paymentMethodOptions(selectedCard, initial?.paymentMethod).map(
-                (method) => {
-                  const active = paymentMethod === method
-                  return (
-                    <button
-                      key={method}
-                      type="button"
-                      className={`chip${active ? ' is-active' : ''}`}
-                      onClick={() => setPaymentMethod(method)}
-                      style={
-                        active
-                          ? selectedCard
-                            ? {
-                                borderColor: selectedCard.colorFrom,
-                                background: `${selectedCard.colorFrom}14`,
-                              }
-                            : { borderColor: 'var(--accent)' }
-                          : undefined
-                      }
-                    >
-                      <span aria-hidden="true">{PAYMENT_METHOD_EMOJI[method]}</span>
-                      {method}
-                    </button>
-                  )
-                },
-              )}
-            </div>
-            <span className="field__hint">
-              {cardId !== null
-                ? '간편결제 혜택(예: MG+ S 10%)은 간편결제를 선택해야 적용돼요.'
-                : '카드 없이 결제한 방식을 선택해 주세요.'}
-            </span>
           </div>
-        )}
+        ) : null}
 
         <div className="field-row">
           <div className="field">

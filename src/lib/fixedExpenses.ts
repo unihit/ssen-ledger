@@ -132,6 +132,30 @@ export function applicationFor(
   )
 }
 
+/**
+ * 아직 고정지출에 연결되지 않은 같은 날짜·금액 거래.
+ * 자동 연결하지 않고 사용자에게 "이 거래를 연결할까요?"라고 물을 때 사용합니다.
+ */
+export function fixedExpenseCandidates(
+  fixedExpense: Pick<FixedExpense, 'id' | 'amount' | 'dayOfMonth'>,
+  month: string,
+  transactions: Transaction[] | undefined,
+  applications: FixedExpenseApplication[] = [],
+): Transaction[] {
+  if (!transactions || transactions.length === 0) return []
+  if (applicationFor(applications, fixedExpense.id, month)) return []
+
+  const dueDate = fixedExpenseDueDate(fixedExpense, month)
+  return transactions.filter(
+    (transaction) =>
+      (transaction.status ?? 'active') !== 'canceled' &&
+      !transaction.fixedExpenseId &&
+      transaction.id &&
+      transaction.date === dueDate &&
+      (transaction.effectiveAmount ?? transaction.amount) === fixedExpense.amount,
+  )
+}
+
 export function fixedExpenseDDayLabel(
   dueDate: string,
   today = todayISO(),
@@ -164,7 +188,7 @@ export function fixedExpenseStatus(
         (tx) =>
           tx.id === application.transactionId ||
           (tx.fixedExpenseId === fixedExpense.id &&
-            tx.date.startsWith(month)),
+            tx.fixedExpenseMonth === month),
       )
     : undefined
   // 앱은 생활비·저축 거래만 메모리에 올린다. 목록에 없는 거래를 삭제로 단정하면
