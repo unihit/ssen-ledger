@@ -159,17 +159,22 @@ export function fixedExpenseStatus(
   dDayLabel?: string
 } {
   const application = applicationFor(applications, fixedExpense.id, month)
-  // 거래 목록이 주어지면, 해당 반영 거래가 실제로 존재하고 취소되지 않은 경우에만 'recorded'로 판정한다.
+  const linkedTransaction = application
+    ? transactions?.find(
+        (tx) =>
+          tx.id === application.transactionId ||
+          (tx.fixedExpenseId === fixedExpense.id &&
+            tx.date.startsWith(month)),
+      )
+    : undefined
+  // 앱은 생활비·저축 거래만 메모리에 올린다. 목록에 없는 거래를 삭제로 단정하면
+  // 대출상환처럼 화면 목록에서 빠지는 고정지출이 계속 '반영 후보'로 보인다.
+  // 취소된 거래가 확인된 경우에만 기록 상태를 해제한다.
   const isTransactionActive =
     !transactions ||
     !application ||
-    transactions.some(
-      (tx) =>
-        (tx.id === application.transactionId ||
-          (tx.fixedExpenseId === fixedExpense.id &&
-            tx.date.startsWith(month))) &&
-        (tx.status ?? 'active') !== 'canceled',
-    )
+    !linkedTransaction ||
+    (linkedTransaction.status ?? 'active') !== 'canceled'
 
   if (application && isTransactionActive) {
     return { status: 'recorded', dueDate: application.date, application }
