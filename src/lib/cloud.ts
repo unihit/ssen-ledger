@@ -398,6 +398,31 @@ export async function saveTransactionRemote(
   if (error) throw error
 }
 
+/** 같은 달에 이미 반영된 고정지출 거래가 있으면 그 거래를 재사용한다. */
+export async function findActiveFixedExpenseTransaction(
+  householdId: string,
+  fixedExpenseId: string,
+  month: string,
+): Promise<{ id: string } | null> {
+  const { data, error } = await requireSupabase()
+    .from('transactions')
+    .select('id, date, fixed_expense_month')
+    .eq('household_id', householdId)
+    .eq('fixed_expense_id', fixedExpenseId)
+    .eq('status', 'active')
+
+  if (error) throw error
+
+  const row = (data ?? []).find((item) => {
+    const linkedMonth = item.fixed_expense_month
+      ? String(item.fixed_expense_month).slice(0, 7)
+      : String(item.date).slice(0, 7)
+    return linkedMonth === month
+  })
+
+  return row ? { id: String(row.id) } : null
+}
+
 export async function deleteTransactionRemote(
   householdId: string,
   id: string,

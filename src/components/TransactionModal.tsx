@@ -83,6 +83,7 @@ export function TransactionModal({
           (fixedExpense ? fixedExpense.categoryMajor !== '생활비' : false)),
   )
   const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
 
   const numericAmount = Number(amount.replace(/[^\d]/g, '')) || 0
   const savingsCategory = isSavingsCategory(categoryId)
@@ -147,8 +148,9 @@ export function TransactionModal({
     }
   }
 
-  const handleSubmit = (event: FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
+    if (saving) return
     if (numericAmount <= 0) {
       setError(savingsCategory ? '저축 금액을 입력해 주세요.' : '결제 금액을 입력해 주세요.')
       return
@@ -173,22 +175,28 @@ export function TransactionModal({
     }
 
     if (fixedExpense) {
-      const result = applyFixedExpense(fixedExpense, {
-        date,
-        amount: numericAmount,
-        merchant: merchant.trim() || (savingsCategory ? '저축' : fixedExpense.name),
-        memo: memo.trim(),
-        categoryId,
-        cardId: effectiveCardId,
-        paymentMethod: effectivePaymentMethod,
-        excluded: effectiveExcluded,
-      })
-      if (!result.ok) {
-        setError(result.message)
-        return
+      setSaving(true)
+      setError('')
+      try {
+        const result = await applyFixedExpense(fixedExpense, {
+          date,
+          amount: numericAmount,
+          merchant: merchant.trim() || (savingsCategory ? '저축' : fixedExpense.name),
+          memo: memo.trim(),
+          categoryId,
+          cardId: effectiveCardId,
+          paymentMethod: effectivePaymentMethod,
+          excluded: effectiveExcluded,
+        })
+        if (!result.ok) {
+          setError(result.message)
+          return
+        }
+        setMonth(date.slice(0, 7))
+        onClose()
+      } finally {
+        setSaving(false)
       }
-      setMonth(date.slice(0, 7))
-      onClose()
       return
     }
 
@@ -268,14 +276,21 @@ export function TransactionModal({
             <button type="button" className="btn btn--ghost" onClick={onClose}>
               취소
             </button>
-            <button type="submit" form="transaction-form" className="btn btn--primary">
-              {fixedExpense
-                ? '반영 완료'
-                : initial
-                  ? '수정 완료'
-                  : savingsCategory
-                    ? '저축 저장'
-                    : '저장'}
+            <button
+              type="submit"
+              form="transaction-form"
+              className="btn btn--primary"
+              disabled={saving}
+            >
+              {saving
+                ? '반영 중…'
+                : fixedExpense
+                  ? '반영 완료'
+                  : initial
+                    ? '수정 완료'
+                    : savingsCategory
+                      ? '저축 저장'
+                      : '저장'}
             </button>
           </div>
         </div>

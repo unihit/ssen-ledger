@@ -24,6 +24,7 @@ import {
   deactivateFixedExpenseRemote,
   deleteCardRemote,
   deleteTransactionRemote,
+  findActiveFixedExpenseTransaction,
   getHouseholdInitialized,
   loadCloudState,
   markHouseholdInitialized,
@@ -218,7 +219,7 @@ interface AppContextValue {
       paymentMethod?: string
       excluded?: boolean
     },
-  ) => { ok: boolean; message: string }
+  ) => Promise<{ ok: boolean; message: string }>
   resetToInitial: () => void
   clearAll: () => void
   exportJSON: () => string
@@ -376,6 +377,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [cloudReady, householdId],
   )
 
+  const refreshFromCloud = useCallback(async () => {
+    if (!householdId || !cloudReady) return
+
+    try {
+      const next = await loadCloudState(householdId)
+      setState((current) =>
+        settingsDirtyRef.current
+          ? { ...next.state, settings: current.settings }
+          : next.state,
+      )
+      setFixedExpenses(next.fixedExpenses)
+      setFixedExpenseApplications(next.fixedExpenseApplications)
+      setSyncState('synced')
+      setSyncError('')
+    } catch (error) {
+      setSyncState('error')
+      setSyncError(errorMessage(error))
+    }
+  }, [cloudReady, householdId])
+
   useEffect(() => {
     if (!householdId || !cloudReady || !settingsDirtyRef.current) return
 
@@ -410,22 +431,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(timer)
       timer = window.setTimeout(() => {
         if (bulkSyncRef.current) return
-        void loadCloudState(householdId)
-          .then((next) => {
-            setState((current) =>
-              settingsDirtyRef.current
-                ? { ...next.state, settings: current.settings }
-                : next.state,
-            )
-            setFixedExpenses(next.fixedExpenses)
-            setFixedExpenseApplications(next.fixedExpenseApplications)
-            setSyncState('synced')
-            setSyncError('')
-          })
-          .catch((error) => {
-            setSyncState('error')
-            setSyncError(errorMessage(error))
-          })
+        void refreshFromCloud()
       }, 250)
     }
 
@@ -477,7 +483,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(timer)
       void client.removeChannel(channel)
     }
-  }, [cloudReady, householdId])
+  }, [cloudReady, householdId, refreshFromCloud])
 
   const addTransaction = useCallback(
     (input: Omit<Transaction, 'id'>) => {
@@ -785,7 +791,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const applyFixedExpense = useCallback(
-    (
+    async (
       fixedExpense: FixedExpense,
       input: {
         date: string
@@ -799,6 +805,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
     ) => {
       const month = input.date.slice(0, 7)
+      const hid = householdId
+
+      if (hid && !cloudReady) {
+        return {
+          ok: false,
+          message: '가계부 데이터를 불러오는 중이에요. 잠시 후 다시 시도해 주세요.',
+        }
+      }
+
       const existingApplication = fixedExpenseApplications.find(
         (application) =>
           application.fixedExpenseId === fixedExpense.id &&
@@ -842,8 +857,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
         : fixedExpense.categoryGroup
       const categoryId = savings ? 'savings' : fixedExpense.categoryId
 
+      // 이미 반영된 거래가 있으면 새로 만들지 않고 그 거래를 갱신한다.
+      // 로컬 목록이 오래되어 반영 버튼이 다시 보이는 경우에도 중복 거래가 생기지 않는다.
+      let existingId: string | null = null
+      if (hid) {
+        try {
+          const existing = await findActiveFixedExpenseTransaction(
+            hid,
+            fixedExpense.id,
+            month,
+          )
+          existingId = existing?.id ?? null
+        } catch (error) {
+          return {
+            ok: false,
+            message: `이미 반영된 거래를 확인하지 못했어요. ${errorMessage(error)}`,
+          }
+        }
+      }
+
       const transaction = withSavingsDefaults({
-        id: newId(),
+        id: existingId ?? newId(),
         date: input.date,
         merchant: input.merchant?.trim() || fixedExpense.name,
         amount,
@@ -875,15 +909,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
         fixedExpenseMonth: month,
       })
 
-      setState((current) => ({
-        ...current,
-        transactions: [transaction, ...current.transactions],
-      }))
+      setState((current) => {
+        const alreadyVisible = current.transactions.some(
+          (item) => item.id === transaction.id,
+        )
+        return {
+          ...current,
+          transactions: alreadyVisible
+            ? current.transactions.map((item) =>
+                item.id === transaction.id ? transaction : item,
+              )
+            : [transaction, ...current.transactions],
+        }
+      })
 
       setFixedExpenseApplications((current) => [
         ...current.filter(
-          (app) =>
-            !(app.fixedExpenseId === fixedExpense.id && app.month === month),
+          (application) =>
+            !(
+              application.fixedExpenseId === fixedExpense.id &&
+              application.month === month
+            ) && application.transactionId !== transaction.id,
         ),
         {
           fixedExpenseId: fixedExpense.id,
@@ -894,30 +940,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
         },
       ])
 
-      const hid = householdId
-      if (hid) {
-        push(
-          () => saveTransactionRemote(hid, transaction),
-          () => {
-            setState((current) => ({
-              ...current,
-              transactions: current.transactions.filter(
-                (item) => item.id !== transaction.id,
-              ),
-            }))
-            setFixedExpenseApplications((current) =>
-              current.filter(
-                (application) =>
-                  application.transactionId !== transaction.id,
-              ),
-            )
-          },
-        )
+      if (!hid) {
+        return { ok: true, message: '고정지출을 반영했어요.' }
       }
 
-      return { ok: true, message: '고정지출을 반영했어요.' }
+      setSyncState('syncing')
+      setSyncError('')
+      try {
+        await saveTransactionRemote(hid, transaction)
+        setSyncState('synced')
+        setSyncError('')
+        void refreshFromCloud()
+        return {
+          ok: true,
+          message: existingId
+            ? '이번 달 고정지출을 최신 내용으로 업데이트했어요.'
+            : '고정지출을 반영했어요.',
+        }
+      } catch (error) {
+        const message = errorMessage(error)
+        setSyncState('error')
+        setSyncError(message)
+        await refreshFromCloud()
+        return { ok: false, message }
+      }
     },
-    [fixedExpenseApplications, householdId, push, state.transactions],
+    [
+      cloudReady,
+      fixedExpenseApplications,
+      householdId,
+      refreshFromCloud,
+      state.transactions,
+    ],
   )
 
   const resetToInitial = useCallback(() => {
