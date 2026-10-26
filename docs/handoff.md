@@ -266,6 +266,8 @@ curl.exe "https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api/v1/met
   3. 생성된 거래에는 `fixed_expense_id`와 `fixed_expense_month`가 연결됩니다.
   4. 같은 달에 중복 반영되지 않도록 활성 거래에 부분 unique index가 걸려 있습니다.
   5. 반영 시 같은 달의 활성 거래가 이미 있으면 새 행을 만들지 않고 그 거래를 갱신합니다. 저장 후 클라우드 상태를 다시 읽어 버튼·목록을 맞춥니다.
+  6. `기록됨` 판정은 `fixed_expense_id`+`fixed_expense_month` 연결을 기준으로 합니다. 앱 메모리에 없는 거래를 삭제로 단정하지 않고, 취소된 거래가 확인된 경우에만 `반영 후보`로 되돌립니다.
+  7. Realtime은 `transactions`, `cards`, `households`, `recurring_expenses`를 구독합니다. 다른 탭에서 반영하거나 템플릿을 수정해도 자동으로 다시 읽습니다.
 - `day_of_month = 31`은 **말일**입니다. 2월은 28/29일, 30일까지 있는 달은 30일로 계산합니다.
 - 보험료처럼 실제 결제일이 달라지는 항목은 반영 시 날짜를 바꿀 수 있고, Agent API의 `apply`에 `date`를 보내 기존 거래 날짜를 수정할 수 있습니다.
 - 고정지출 숨기기는 `active = false` 소프트 삭제입니다. 이미 반영된 거래는 취소·삭제하지 않습니다.

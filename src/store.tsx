@@ -909,19 +909,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         fixedExpenseMonth: month,
       })
 
-      setState((current) => {
-        const alreadyVisible = current.transactions.some(
-          (item) => item.id === transaction.id,
-        )
-        return {
-          ...current,
-          transactions: alreadyVisible
-            ? current.transactions.map((item) =>
-                item.id === transaction.id ? transaction : item,
-              )
-            : [transaction, ...current.transactions],
-        }
-      })
+      const visible = categoryMajor === '생활비' || categoryId === 'savings'
+      if (visible) {
+        setState((current) => {
+          const alreadyVisible = current.transactions.some(
+            (item) => item.id === transaction.id,
+          )
+          return {
+            ...current,
+            transactions: alreadyVisible
+              ? current.transactions.map((item) =>
+                  item.id === transaction.id ? transaction : item,
+                )
+              : [transaction, ...current.transactions],
+          }
+        })
+      }
 
       setFixedExpenseApplications((current) => [
         ...current.filter(
