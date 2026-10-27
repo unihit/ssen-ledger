@@ -398,7 +398,10 @@ begin
     alter publication supabase_realtime add table public.households;
   end if;
 
-  if not exists (
+  if exists (
+    select 1 from information_schema.tables
+    where table_schema = 'public' and table_name = 'recurring_expenses'
+  ) and not exists (
     select 1 from pg_publication_tables
     where pubname = 'supabase_realtime'
       and schemaname = 'public'

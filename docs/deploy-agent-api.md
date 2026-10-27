@@ -1,7 +1,7 @@
 # Agent API 배포 체크리스트
 
 이 문서는 **사용자가 직접** Supabase에 적용·배포할 때 쓰는 순서입니다.  
-프로젝트: `iglonavoqsihzdobfadh` (`https://iglonavoqsihzdobfadh.supabase.co`)
+프로젝트: `vetwwxmujaiwwwpjurpr` (`https://vetwwxmujaiwwwpjurpr.supabase.co`)
 
 ## 0. 준비
 
@@ -51,27 +51,27 @@ CLI로 넣으려면 `npx --yes supabase@latest login` 후:
 
 ```powershell
 $key = (Get-Content .env.agent | Select-String '^AGENT_API_KEY=').Line.Split('=', 2)[1]
-npx --yes supabase@latest secrets set "AGENT_API_KEY=$key" --project-ref iglonavoqsihzdobfadh
+npx --yes supabase@latest secrets set "AGENT_API_KEY=$key" --project-ref vetwwxmujaiwwwpjurpr
 ```
 
 ## 3. 배포
 
 ```powershell
 npx --yes supabase@latest login
-npx --yes supabase@latest functions deploy agent-api --no-verify-jwt --project-ref iglonavoqsihzdobfadh
+npx --yes supabase@latest functions deploy agent-api --no-verify-jwt --project-ref vetwwxmujaiwwwpjurpr
 ```
 
 `supabase/config.toml`에 `verify_jwt = false`가 있어 `--no-verify-jwt`를 생략해도 됩니다.  
 배포가 끝나면 함수 URL은 다음과 같습니다.
 
 ```text
-https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api
+https://vetwwxmujaiwwwpjurpr.supabase.co/functions/v1/agent-api
 ```
 
 ## 4. 배포 확인
 
 ```powershell
-curl.exe https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api/v1/health
+curl.exe https://vetwwxmujaiwwwpjurpr.supabase.co/functions/v1/agent-api/v1/health
 ```
 
 기대 응답:
@@ -84,7 +84,7 @@ curl.exe https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api/v1/heal
 
 ```powershell
 $key = (Get-Content .env.agent | Select-String '^AGENT_API_KEY=').Line.Split('=', 2)[1]
-curl.exe "https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api/v1/meta" `
+curl.exe "https://vetwwxmujaiwwwpjurpr.supabase.co/functions/v1/agent-api/v1/meta" `
   -H "Authorization: Bearer $key"
 ```
 
@@ -104,7 +104,7 @@ order by created_at;
 - 2개 이상이면 하나를 골라 Secret에 넣고 재배포합니다.
 
 ```powershell
-npx --yes supabase@latest secrets set "AGENT_HOUSEHOLD_ID=<가구 UUID>" --project-ref iglonavoqsihzdobfadh
+npx --yes supabase@latest secrets set "AGENT_HOUSEHOLD_ID=<가구 UUID>" --project-ref vetwwxmujaiwwwpjurpr
 ```
 
 ## 6. 시트 거래 이관
@@ -112,7 +112,7 @@ npx --yes supabase@latest secrets set "AGENT_HOUSEHOLD_ID=<가구 UUID>" --proje
 실제 거래 데이터(금액·메모·사용처)는 저장소에 커밋하지 마세요. 로컬의 비공개 파일이나 일회성 스크립트로 API에 입력하고, 이관 후에는 해당 파일을 저장소 밖으로 옮기거나 삭제합니다.
 
 ```powershell
-$env:AGENT_API_URL = "https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api"
+$env:AGENT_API_URL = "https://vetwwxmujaiwwwpjurpr.supabase.co/functions/v1/agent-api"
 $env:AGENT_API_KEY = (Get-Content .env.agent | Select-String '^AGENT_API_KEY=').Line.Split('=', 2)[1]
 # 로컬의 비공개 이관 스크립트 실행
 ```
@@ -122,7 +122,7 @@ $env:AGENT_API_KEY = (Get-Content .env.agent | Select-String '^AGENT_API_KEY=').
 기존 앱 데이터와 시트 데이터가 같은 월에 겹치면, 시트 기준으로 맞추기 위해 아래 SQL을 **필요한 경우에만** 실행합니다. 하드 삭제가 아니라 소프트 취소이며 `ledger_history`에 기록됩니다.
 
 ```powershell
-npx --yes supabase@latest db query --linked --project-ref iglonavoqsihzdobfadh `
+npx --yes supabase@latest db query --linked --project-ref vetwwxmujaiwwwpjurpr `
   --file supabase/cleanup-2026-10-app-data.sql
 ```
 
@@ -133,7 +133,7 @@ npx --yes supabase@latest db query --linked --project-ref iglonavoqsihzdobfadh `
 이관 후 검증:
 
 ```powershell
-curl.exe "https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api/v1/aggregates/monthly?month=2026-10" `
+curl.exe "https://vetwwxmujaiwwwpjurpr.supabase.co/functions/v1/agent-api/v1/aggregates/monthly?month=2026-10" `
   -H "Authorization: Bearer $env:AGENT_API_KEY"
 ```
 
@@ -144,7 +144,7 @@ curl.exe "https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api/v1/agg
 Muse의 서버 측 Secret/환경변수에 아래 두 개를 넣습니다.
 
 ```text
-AGENT_API_URL=https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api
+AGENT_API_URL=https://vetwwxmujaiwwwpjurpr.supabase.co/functions/v1/agent-api
 AGENT_API_KEY=<.env.agent의 AGENT_API_KEY>
 ```
 

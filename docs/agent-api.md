@@ -3,7 +3,7 @@
 Muse 같은 클라우드 에이전트가 **단일 Bearer API 키**로 가계부를 읽고 쓰기 위한 Supabase Edge Function입니다.
 
 - 공개 HTTPS 주소: `https://<PROJECT_REF>.supabase.co/functions/v1/agent-api`
-  - 이 작업 공간의 프로젝트: `https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api`
+  - 이 작업 공간의 프로젝트: `https://vetwwxmujaiwwwpjurpr.supabase.co/functions/v1/agent-api`
 - 인증: `Authorization: Bearer <AGENT_API_KEY>` (키 1개)
 - 데이터 저장소: 기존 Supabase 프로젝트의 `public.transactions` 확장 + `balance_snapshots`, `recurring_expenses`, `ledger_categories`, `ledger_history`
 - 새 secret key(`sb_secret_...`) 또는 legacy `service_role` 키는 Edge Function Secret에만 두고 앱/프런트엔드/Muse에 절대 노출하지 않습니다.

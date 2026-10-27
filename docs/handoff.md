@@ -32,8 +32,8 @@
 
 - 저장소: <https://github.com/unihit/ssen-ledger>
 - 배포 사이트: <https://unihit.github.io/ssen-ledger/>
-- Supabase 프로젝트 ref: `iglonavoqsihzdobfadh`
-- Agent API: `https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api`
+- Supabase 프로젝트 ref: `vetwwxmujaiwwwpjurpr`
+- Agent API: `https://vetwwxmujaiwwwpjurpr.supabase.co/functions/v1/agent-api`
 
 ---
 
@@ -101,8 +101,8 @@ VITE_DATADOG_REPLAY_SAMPLE_RATE=0
 ```env
 AGENT_API_KEY=
 AGENT_HOUSEHOLD_ID=
-SUPABASE_PROJECT_REF=iglonavoqsihzdobfadh
-SUPABASE_URL=https://iglonavoqsihzdobfadh.supabase.co
+SUPABASE_PROJECT_REF=vetwwxmujaiwwwpjurpr
+SUPABASE_URL=https://vetwwxmujaiwwwpjurpr.supabase.co
 ```
 
 - `AGENT_API_KEY`는 Muse/Agent API 인증용 단일 키입니다.
@@ -161,7 +161,7 @@ npx --yes supabase@latest db query --linked "select id, name from public.househo
 또는 인증된 Agent API:
 
 ```powershell
-curl.exe "https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api/v1/meta" `
+curl.exe "https://vetwwxmujaiwwwpjurpr.supabase.co/functions/v1/agent-api/v1/meta" `
   -H "Authorization: Bearer <AGENT_API_KEY>"
 ```
 
@@ -347,14 +347,14 @@ curl.exe "https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api/v1/met
 
 ```powershell
 npx --yes supabase@latest login
-npx --yes supabase@latest link --project-ref iglonavoqsihzdobfadh
+npx --yes supabase@latest link --project-ref vetwwxmujaiwwwpjurpr
 npx --yes supabase@latest functions deploy agent-api --no-verify-jwt
 ```
 
 확인:
 
 ```powershell
-curl.exe https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api/v1/health
+curl.exe https://vetwwxmujaiwwwpjurpr.supabase.co/functions/v1/agent-api/v1/health
 ```
 
 ---
