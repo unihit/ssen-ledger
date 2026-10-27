@@ -139,6 +139,98 @@ export const SHINHAN_NARA_CARD: Card = {
 }
 
 /**
+ * KB국민 직장인보너스체크카드.
+ * - 전월실적 구간별 월 통합할인한도:
+ *   20만 이상~30만 미만: 5,000원
+ *   30만 이상~50만 미만: 10,000원
+ *   50만 이상~100만 미만: 20,000원
+ *   100만 이상: 50,000원
+ * - 주유, 국세/지방세 및 보험료 환급, 아웃백, 백화점, 대중교통 등 직장인 특화
+ */
+export const KB_BONUS_CARD: Card = {
+  id: 'kb-bonus-check',
+  name: 'KB국민 직장인보너스체크카드',
+  issuer: 'KB국민카드',
+  kind: 'check',
+  colorFrom: '#f59e0b',
+  colorTo: '#1e293b',
+  minSpendForBenefits: 200_000,
+  monthlyTotalCap: 5_000,
+  performanceTiers: [
+    { minSpend: 200_000, monthlyTotalCap: 5_000 },
+    { minSpend: 300_000, monthlyTotalCap: 10_000 },
+    { minSpend: 500_000, monthlyTotalCap: 20_000 },
+    { minSpend: 1_000_000, monthlyTotalCap: 50_000 },
+  ],
+  baseRate: 0,
+  baseCap: 0,
+  active: true,
+  benefits: [
+    {
+      id: 'kb-bonus-fuel',
+      categoryId: 'fuel',
+      rate: 0.035,
+      monthlyCap: 10_000,
+      minSpend: 200_000,
+      note: 'GS칼텍스 주중 50원/L, 주말 60원/L 환급할인 (건당 10만원, 월 30만원 이용금액 한도)',
+    },
+    {
+      id: 'kb-bonus-transport',
+      categoryId: 'transport',
+      rate: 0.05,
+      monthlyCap: 1_000,
+      minSpend: 300_000,
+      note: '대중교통(버스/지하철) 5% 청구할인 (월 이용금액 2만원 한도, 월 최대 1,000원)',
+    },
+    {
+      id: 'kb-bonus-food',
+      categoryId: 'food',
+      rate: 0.1,
+      monthlyCap: 10_000,
+      minSpend: 200_000,
+      minTransactionAmount: 30_000,
+      note: '아웃백 10% 환급할인 (건당 3만~10만원 결제 시, 건당 최대 10,000원)',
+    },
+    {
+      id: 'kb-bonus-shopping',
+      categoryId: 'shopping',
+      rate: 0.05,
+      monthlyCap: 10_000,
+      minSpend: 500_000,
+      minTransactionAmount: 50_000,
+      note: '롯데·현대·신세계백화점 5% 환급할인 (건당 5만~10만원 결제 시, 건당 최대 5,000원)',
+    },
+    {
+      id: 'kb-bonus-telecom',
+      categoryId: 'telecom',
+      rate: 0.02,
+      monthlyCap: 1_000,
+      minSpend: 300_000,
+      minTransactionAmount: 50_000,
+      note: '이동통신요금 자동이체 건당 5만원 이상 시 1,000원 환급 (월 1회)',
+    },
+    {
+      id: 'kb-bonus-tax-insurance',
+      categoryId: 'living',
+      rate: 0.07,
+      monthlyCap: 9_000,
+      minSpend: 300_000,
+      minTransactionAmount: 100_000,
+      note: '국세·지방세 7,000원 환급(건당 10만원 이상, 월 1회) · 보험료 2,000원 환급(건당 10만원 이상, 월 1회)',
+    },
+    {
+      id: 'kb-bonus-culture',
+      categoryId: 'culture',
+      rate: 0.5,
+      monthlyCap: 25_000,
+      minSpend: 200_000,
+      minTransactionAmount: 30_000,
+      note: '에버랜드 현장 티켓 발매 50% 환급할인 (건당 3만~5만원 결제 시, 건당 최대 25,000원)',
+    },
+  ],
+}
+
+/**
  * 실제 보유 카드 목록.
  *
  * 혜택은 2026-10 기준 공개된 상품 안내를 바탕으로 앱의 카테고리/한도 모델에
@@ -148,6 +240,7 @@ export const SHINHAN_NARA_CARD: Card = {
 const MY_CARDS: Card[] = [
   MG_PLUS_S_CARD,
   SHINHAN_NARA_CARD,
+  KB_BONUS_CARD,
   {
     id: 'kb-nara-check',
     name: 'KB국민 나라사랑체크카드',
