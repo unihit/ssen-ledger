@@ -198,6 +198,32 @@ curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/transa
   }'
 ```
 
+#### 실적용 상품권 / 총 지출 제외 결제 (상테크)
+
+카드 실적은 채우고 가계부 총 지출에서는 제외할 결제는 `excludeFromSpend: true`를 지정하거나 `categoryMinor: "상품권"`을 지정합니다.
+
+```bash
+curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/transactions" \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "date": "2026-10-27",
+    "categoryMajor": "생활비",
+    "categoryMinor": "상품권",
+    "amount": 50000,
+    "merchant": "문화상품권",
+    "paymentMethod": "체크카드",
+    "cardName": "신한 나라사랑체크카드",
+    "excludeFromSpend": true,
+    "memo": "카드 실적 채움용"
+  }'
+```
+
+- `excludeFromSpend: true` (또는 `categoryMinor: "상품권"`, 결제처/메모에 `문화상품권` 포함 시 자동 인식):
+  - **카드 실적**: `card_id`에 연결되어 전월/당월 카드 실적에 100% 반영됩니다 (`excluded: false`).
+  - **총 지출**: `category_group: "집계 제외"`로 기록되어 가계부 총 지출과 예산에서 빠집니다.
+  - **가계부 리스트**: 숨겨지지 않고 `🎁 상품권` 카테고리 및 `지출 제외 · 실적 인정` 뱃지와 함께 그대로 표시됩니다.
+
 `id`를 직접 지정할 때:
 
 ```json

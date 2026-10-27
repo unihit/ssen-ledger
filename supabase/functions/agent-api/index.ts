@@ -65,7 +65,7 @@ const SHEET_TO_APP_CATEGORY: Record<string, string> = {
   '생활비|건강': 'medical',
   '생활비|교통': 'transport',
   '생활비|경조사': 'etc',
-  '생활비|상품권': 'shopping',
+  '생활비|상품권': 'giftcard',
   '생활비|보험료': 'etc',
   '생활비|회비': 'etc',
   '생활비|기부금': 'etc',
@@ -420,10 +420,27 @@ function normalizeAliases(raw: Record<string, unknown>) {
     out.categoryMinor = out.subcategory
   }
 
-  // Agent가 앱 카테고리 ID만 보내도 저축 거래를 정규화합니다.
+  // Agent가 앱 카테고리 ID만 보내도 저축/상품권 거래를 정규화합니다.
   if (out.categoryId === 'savings') {
     if (out.categoryMajor === undefined) out.categoryMajor = '투자납입'
     if (out.categoryMinor === undefined) out.categoryMinor = '예적금'
+  } else if (out.categoryId === 'giftcard') {
+    if (out.categoryMajor === undefined) out.categoryMajor = '생활비'
+    if (out.categoryMinor === undefined) out.categoryMinor = '상품권'
+  }
+
+  if (out.excludeFromSpend === undefined) {
+    if (out.exclude_from_spend !== undefined) {
+      out.excludeFromSpend = Boolean(out.exclude_from_spend)
+    } else if (out.isSpendExcluded !== undefined) {
+      out.excludeFromSpend = Boolean(out.isSpendExcluded)
+    } else if (out.spendExcluded !== undefined) {
+      out.excludeFromSpend = Boolean(out.spendExcluded)
+    }
+  }
+
+  if (out.categoryGroup === undefined && out.category_group !== undefined) {
+    out.categoryGroup = out.category_group
   }
 
   const path = out.category ?? out.categoryPath
@@ -486,6 +503,9 @@ interface NormalizedTransaction {
   note: string
   paymentMethod: string | null
   cardId: string | null
+  excludeFromSpend?: boolean
+  excluded?: boolean
+  categoryGroup?: string
 }
 
 function validateTransactionInput(raw: Record<string, unknown>): NormalizedTransaction {
@@ -608,6 +628,15 @@ function validateTransactionInput(raw: Record<string, unknown>): NormalizedTrans
     note: (note as string).trim(),
     paymentMethod: paymentMethod as string | null,
     cardId: cardId as string | null,
+    excludeFromSpend:
+      typeof body.excludeFromSpend === 'boolean'
+        ? body.excludeFromSpend
+        : undefined,
+    excluded: typeof body.excluded === 'boolean' ? body.excluded : undefined,
+    categoryGroup:
+      typeof body.categoryGroup === 'string'
+        ? body.categoryGroup.trim()
+        : undefined,
   }
 }
 
@@ -807,6 +836,13 @@ async function annotateSingle(row: Record<string, unknown>) {
 }
 
 function toApiTransaction(row: Record<string, unknown>) {
+  const isSpendExcluded =
+    row.category_group === '집계 제외' ||
+    row.category_minor === '상품권' ||
+    row.category_id === 'giftcard' ||
+    (typeof row.merchant === 'string' && /문화상품권/i.test(row.merchant)) ||
+    (typeof row.memo === 'string' && /문화상품권/i.test(row.memo))
+
   return {
     id: row.id,
     date: row.date,
@@ -814,6 +850,8 @@ function toApiTransaction(row: Record<string, unknown>) {
     categoryMinor: row.category_minor,
     category: `${row.category_major}-${row.category_minor}`,
     categoryGroup: row.category_group,
+    excludeFromSpend: isSpendExcluded,
+    excluded: Boolean(row.excluded),
     amount: Number(row.amount) || 0,
     correction: Number(row.correction) || 0,
     effectiveAmount: effectiveAmount(row),
@@ -885,19 +923,41 @@ async function createTransaction(req: Request, householdId: string) {
     normalizedPaymentMethod ?? '',
   )
 
+  const isGiftCard =
+    input.categoryMinor === '상품권' ||
+    appCategory === 'giftcard' ||
+    /문화상품권|상품권/i.test(input.merchant) ||
+    /문화상품권|상품권/i.test(input.memo)
+
+  const isSpendExcluded =
+    input.excludeFromSpend !== undefined
+      ? input.excludeFromSpend
+      : input.categoryGroup === '집계 제외' || isGiftCard
+
+  const effectiveCategoryGroup = isSpendExcluded
+    ? '집계 제외'
+    : (input.categoryGroup ?? category.category_group)
+
+  const effectiveAppCategory = isGiftCard ? 'giftcard' : appCategory
+
+  const effectiveExcluded =
+    input.excluded !== undefined
+      ? input.excluded
+      : savings || (input.categoryMajor !== '생활비' && !isSpendExcluded)
+
   const payload = {
     household_id: householdId,
     id: input.id ?? crypto.randomUUID(),
     date: input.date,
     merchant: input.merchant,
     amount: input.amount,
-    category_id: appCategory,
+    category_id: effectiveAppCategory,
     card_id: usesCard ? cardId : null,
     memo: input.memo,
-    excluded: savings || input.categoryMajor !== '생활비',
+    excluded: effectiveExcluded,
     category_major: input.categoryMajor,
     category_minor: input.categoryMinor,
-    category_group: category.category_group,
+    category_group: effectiveCategoryGroup,
     correction: input.correction,
     payment_method: normalizedPaymentMethod,
     note: input.note,
@@ -1060,17 +1120,39 @@ async function updateTransaction(
     normalizedPaymentMethod ?? '',
   )
 
+  const isGiftCard =
+    input.categoryMinor === '상품권' ||
+    appCategory === 'giftcard' ||
+    /문화상품권|상품권/i.test(input.merchant) ||
+    /문화상품권|상품권/i.test(input.memo)
+
+  const isSpendExcluded =
+    input.excludeFromSpend !== undefined
+      ? input.excludeFromSpend
+      : input.categoryGroup === '집계 제외' || isGiftCard
+
+  const effectiveCategoryGroup = isSpendExcluded
+    ? '집계 제외'
+    : (input.categoryGroup ?? category.category_group)
+
+  const effectiveAppCategory = isGiftCard ? 'giftcard' : appCategory
+
+  const effectiveExcluded =
+    input.excluded !== undefined
+      ? input.excluded
+      : savings || (input.categoryMajor !== '생활비' && !isSpendExcluded)
+
   const payload = {
     date: input.date,
     merchant: input.merchant,
     amount: input.amount,
-    category_id: appCategory,
+    category_id: effectiveAppCategory,
     card_id: usesCard ? cardId : null,
     memo: input.memo,
-    excluded: savings || input.categoryMajor !== '생활비',
+    excluded: effectiveExcluded,
     category_major: input.categoryMajor,
     category_minor: input.categoryMinor,
-    category_group: category.category_group,
+    category_group: effectiveCategoryGroup,
     correction: input.correction,
     payment_method: normalizedPaymentMethod,
     note: input.note,
