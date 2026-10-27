@@ -35,9 +35,48 @@ export function monthTransactions(
   return transactions.filter((transaction) => transaction.date.startsWith(month))
 }
 
+/**
+ * 생활비 총 지출 및 통계에서 제외할 거래인지 여부.
+ * - 저축 카테고리
+ * - 명시적 지출 제외 플래그 (excludeFromSpend)
+ * - 집계 제외 그룹 (categoryGroup === '집계 제외')
+ * - 실적으로 결제한 문화상품권 / 상품권 충전 등 실적 채움 목적 결제
+ */
+export function isExcludedFromSpend(transaction: {
+  categoryId?: string | null
+  excludeFromSpend?: boolean
+  categoryGroup?: string | null
+  categoryMinor?: string | null
+  merchant?: string | null
+  memo?: string | null
+  cardId?: string | null
+}): boolean {
+  if (isSavingsCategory(transaction.categoryId)) return true
+  if (transaction.excludeFromSpend) return true
+  if (transaction.categoryGroup === '집계 제외') return true
+
+  // 전월 실적 채움/더미 내역
+  if (transaction.merchant && /실적\s*채움/i.test(transaction.merchant)) return true
+  if (transaction.memo && /실적\s*채우기|전월실적\s*더미|노카운트/i.test(transaction.memo)) return true
+
+  // 카드로 결제한 문화상품권 / 실적용 상품권
+  if (
+    transaction.cardId &&
+    ((transaction.merchant && /문화상품권/i.test(transaction.merchant)) ||
+      (transaction.memo && /문화상품권/i.test(transaction.memo)) ||
+      (transaction.categoryMinor === '상품권' &&
+        transaction.memo &&
+        /실적/i.test(transaction.memo)))
+  ) {
+    return true
+  }
+
+  return false
+}
+
 export function totalSpend(transactions: Transaction[], month: string): number {
   return monthTransactions(transactions, month)
-    .filter((transaction) => !isSavingsCategory(transaction.categoryId))
+    .filter((transaction) => !isExcludedFromSpend(transaction))
     .reduce((total, transaction) => total + transaction.amount, 0)
 }
 
@@ -47,7 +86,7 @@ export function categorySpend(
 ): Map<CategoryId, { amount: number; count: number }> {
   const result = new Map<CategoryId, { amount: number; count: number }>()
   for (const transaction of monthTransactions(transactions, month)) {
-    if (isSavingsCategory(transaction.categoryId)) continue
+    if (isExcludedFromSpend(transaction)) continue
     const current = result.get(transaction.categoryId) ?? { amount: 0, count: 0 }
     result.set(transaction.categoryId, {
       amount: current.amount + transaction.amount,

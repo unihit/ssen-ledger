@@ -6,6 +6,7 @@ import type {
   PerformanceTier,
   Transaction,
 } from '../types'
+import { isExcludedFromSpend } from './analytics'
 import { shiftMonth } from './date'
 import { ratePercent, won, wonShort } from './format'
 
@@ -142,6 +143,11 @@ export function computeCardMonth(
   const countedByRule = new Set<Transaction>()
 
   for (const transaction of monthTransactions) {
+    if (isExcludedFromSpend(transaction)) {
+      // 실적 채움용 결제(문화상품권 등)는 실적으로 인정되나 카드사 혜택(할인/적립) 계산 대상에서는 제외
+      continue
+    }
+
     const rule = ruleForTransaction(applicableRules, transaction)
     if (!rule) continue
 
@@ -169,6 +175,7 @@ export function computeCardMonth(
   const baseSpend =
     performanceMet && card.baseRate > 0
       ? monthTransactions.reduce((total, transaction) => {
+          if (isExcludedFromSpend(transaction)) return total
           if (countedByRule.has(transaction)) return total
           return total + transaction.amount
         }, 0)

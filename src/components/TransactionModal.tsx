@@ -7,6 +7,7 @@ import {
   defaultPaymentMethodForCard,
   paymentMethodOptions,
 } from '../data/paymentMethods'
+import { isExcludedFromSpend } from '../lib/analytics'
 import { recommendCards } from '../lib/benefits'
 import { findManualDuplicates } from '../lib/duplicates'
 import { fixedExpenseDueDate } from '../lib/fixedExpenses'
@@ -79,6 +80,15 @@ export function TransactionModal({
     return initCard ? defaultPaymentMethodForCard(initCard.kind) : '계좌이체'
   })
   const [memo, setMemo] = useState(initial?.memo ?? fixedExpense?.memo ?? '')
+  const [excludeFromSpend, setExcludeFromSpend] = useState(() => {
+    if (startingSavings) return false
+    if (initial) {
+      if (initial.excludeFromSpend !== undefined) return initial.excludeFromSpend
+      if (initial.categoryGroup === '집계 제외') return true
+      return isExcludedFromSpend(initial)
+    }
+    return false
+  })
   const [excluded, setExcluded] = useState(
     startingSavings
       ? true
@@ -219,9 +229,21 @@ export function TransactionModal({
     const effectivePaymentMethod = savingsCategory
       ? '계좌이체'
       : paymentMethod
-    const effectiveExcluded = savingsCategory ? true : excluded
+    const effectiveExcluded = savingsCategory
+      ? true
+      : excludeFromSpend
+        ? false
+        : excluded
+    const effectiveExcludeFromSpend = savingsCategory ? false : excludeFromSpend
     const effectiveMerchant =
       merchant.trim() || (savingsCategory ? '저축' : `${categoryLabel} 결제`)
+    const categoryGroup = effectiveExcludeFromSpend
+      ? '집계 제외'
+      : (initial?.categoryGroup ?? (fixedExpense ? fixedExpense.categoryGroup : '생활비'))
+    const categoryMinor =
+      /문화상품권|상품권/i.test(effectiveMerchant) || /문화상품권|상품권/i.test(memo)
+        ? '상품권'
+        : (initial?.categoryMinor ?? (fixedExpense ? fixedExpense.categoryMinor : undefined))
     const payload = {
       date,
       merchant: effectiveMerchant,
@@ -231,6 +253,9 @@ export function TransactionModal({
       paymentMethod: effectivePaymentMethod,
       memo: memo.trim(),
       excluded: effectiveExcluded,
+      excludeFromSpend: effectiveExcludeFromSpend,
+      categoryGroup,
+      categoryMinor,
       ...(savingsCategory ? SAVINGS_SHEET : {}),
     }
 
@@ -253,6 +278,7 @@ export function TransactionModal({
           cardId: effectiveCardId,
           paymentMethod: effectivePaymentMethod,
           excluded: effectiveExcluded,
+          excludeFromSpend: effectiveExcludeFromSpend,
           linkTransactionId:
             useLinkedCandidate && effectiveLinkCandidateId
               ? effectiveLinkCandidateId
@@ -303,9 +329,9 @@ export function TransactionModal({
       }
 
       updateTransaction({
-        ...payload,
         ...preservedSheetFields,
         ...preservedFixedFields,
+        ...payload,
         paymentMethod: effectivePaymentMethod,
         id: initial.id,
       })
@@ -567,7 +593,14 @@ export function TransactionModal({
             type="text"
             placeholder={savingsCategory ? '예: 청년도약계좌' : '예: 스타벅스 강남점'}
             value={merchant}
-            onChange={(event) => setMerchant(event.target.value)}
+            onChange={(event) => {
+              const val = event.target.value
+              setMerchant(val)
+              if (!initial && /문화상품권/i.test(val)) {
+                setExcludeFromSpend(true)
+                setExcluded(false)
+              }
+            }}
           />
         </div>
 
@@ -721,18 +754,46 @@ export function TransactionModal({
             저축은 카드 실적과 혜택에 잡히지 않아요. 생활비 지출에도 포함되지 않아요.
           </p>
         ) : (
-          <label className="switch-row">
-            <span>
-              실적·혜택 계산에서 제외
-              <small>보험료, 상품권, 세금처럼 실적에 안 잡히는 결제</small>
-            </span>
-            <input
-              type="checkbox"
-              checked={excluded}
-              onChange={(event) => setExcluded(event.target.checked)}
-            />
-            <span className="switch" aria-hidden="true" />
-          </label>
+          <>
+            <label className="switch-row">
+              <span>
+                총 지출에서 제외 (실적 채움용)
+                <small>실적용 문화상품권처럼 카드 실적은 채우고 총 지출에서는 빼요</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={excludeFromSpend}
+                onChange={(event) => {
+                  const checked = event.target.checked
+                  setExcludeFromSpend(checked)
+                  if (checked) {
+                    setExcluded(false)
+                  }
+                }}
+              />
+              <span className="switch" aria-hidden="true" />
+            </label>
+
+            <label className="switch-row">
+              <span>
+                실적·혜택 계산에서 제외
+                <small>보험료, 세금처럼 카드 실적/혜택 대상에서 제외해요</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={excluded}
+                disabled={excludeFromSpend}
+                onChange={(event) => {
+                  const checked = event.target.checked
+                  setExcluded(checked)
+                  if (checked) {
+                    setExcludeFromSpend(false)
+                  }
+                }}
+              />
+              <span className="switch" aria-hidden="true" />
+            </label>
+          </>
         )}
 
         {error && <p className="form__error">{error}</p>}

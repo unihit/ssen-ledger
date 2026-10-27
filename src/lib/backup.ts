@@ -1,4 +1,5 @@
 import { categoryOf } from '../data/categories'
+import { isExcludedFromSpend } from './analytics'
 import type { Card, Transaction } from '../types'
 
 export function downloadText(
@@ -26,7 +27,7 @@ export function transactionsToCSV(transactions: Transaction[], cards: Card[]): s
   const cardName = (id: string | null) =>
     id ? cards.find((card) => card.id === id)?.name ?? '카드' : '현금·계좌'
 
-  const header = ['날짜', '결제처', '카테고리', '결제수단', '금액', '메모', '실적제외']
+  const header = ['날짜', '결제처', '카테고리', '결제수단', '금액', '메모', '실적제외', '지출제외']
   const rows = [...transactions]
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
     .map((transaction) => [
@@ -37,6 +38,7 @@ export function transactionsToCSV(transactions: Transaction[], cards: Card[]): s
       transaction.amount,
       transaction.memo ?? '',
       transaction.excluded ? 'Y' : '',
+      isExcludedFromSpend(transaction) ? 'Y' : '',
     ])
 
   return [header, ...rows].map((row) => row.map(escapeCell).join(',')).join('\r\n')

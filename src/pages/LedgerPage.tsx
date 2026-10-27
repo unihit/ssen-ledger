@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Icon } from '../components/Icon'
 import { Badge, EmptyState, MonthPicker } from '../components/ui'
 import { CATEGORIES, categoryOf, isSavingsCategory } from '../data/categories'
+import { isExcludedFromSpend } from '../lib/analytics'
 import { benefitRuleForTransaction } from '../lib/benefits'
 import { formatDateKo, formatDateShort, todayISO } from '../lib/date'
 import {
@@ -112,10 +113,20 @@ export function LedgerPage({
   const spending = filtered.filter(
     (transaction) => !isSavingsCategory(transaction.categoryId),
   )
+  const actualSpending = spending.filter(
+    (transaction) => !isExcludedFromSpend(transaction),
+  )
+  const spendExcluded = spending.filter(
+    (transaction) => isExcludedFromSpend(transaction),
+  )
   const savings = filtered.filter((transaction) =>
     isSavingsCategory(transaction.categoryId),
   )
-  const total = spending.reduce((sum, transaction) => sum + transaction.amount, 0)
+  const total = actualSpending.reduce((sum, transaction) => sum + transaction.amount, 0)
+  const spendExcludedTotal = spendExcluded.reduce(
+    (sum, transaction) => sum + transaction.amount,
+    0,
+  )
   const savingsTotal = savings.reduce(
     (sum, transaction) => sum + transaction.amount,
     0,
@@ -174,16 +185,22 @@ export function LedgerPage({
         </div>
         <div>
           <span>결제 건수</span>
-          <strong>{spending.length}건</strong>
+          <strong>{actualSpending.length}건</strong>
         </div>
         <div>
           <span>건당 평균</span>
-          <strong>{won(spending.length ? total / spending.length : 0)}</strong>
+          <strong>{won(actualSpending.length ? total / actualSpending.length : 0)}</strong>
         </div>
         {savingsTotal > 0 && (
           <div className="ledger-summary__savings">
             <span>저축</span>
             <strong>{won(savingsTotal)}</strong>
+          </div>
+        )}
+        {spendExcluded.length > 0 && (
+          <div>
+            <span>지출 제외(실적용)</span>
+            <strong>{won(spendExcludedTotal)}</strong>
           </div>
         )}
         {excludedCount > 0 && (
@@ -485,6 +502,8 @@ export function LedgerPage({
                               )}
                               {savings ? (
                                 <Badge tone="success">저축</Badge>
+                              ) : isExcludedFromSpend(transaction) ? (
+                                <Badge tone="accent">지출 제외 · 실적 인정</Badge>
                               ) : (
                                 transaction.excluded && (
                                   <Badge tone="neutral">실적 제외</Badge>

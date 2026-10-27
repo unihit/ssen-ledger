@@ -82,6 +82,8 @@ export interface Transaction {
   memo?: string
   /** 실적/혜택 계산에서 제외 */
   excluded?: boolean
+  /** 총 지출·예산 집계에서 제외 (실적 채움용 문화상품권 등) */
+  excludeFromSpend?: boolean
   /** 시트의 거래유형(대분류). 예: 생활비, 대출상환 */
   categoryMajor?: string
   /** 시트의 분류(소분류). 예: 주거, 차입원금상환 */

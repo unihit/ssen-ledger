@@ -225,6 +225,7 @@ interface AppContextValue {
       cardId?: string | null
       paymentMethod?: string
       excluded?: boolean
+      excludeFromSpend?: boolean
       /** 사용자가 고른 기존 거래에 연결해 반영 */
       linkTransactionId?: string
     },
@@ -816,6 +817,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         cardId?: string | null
         paymentMethod?: string
         excluded?: boolean
+        excludeFromSpend?: boolean
         linkTransactionId?: string
       },
     ) => {
@@ -995,6 +997,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         excluded: savings
           ? true
           : input.excluded ?? (categoryMajor !== '생활비'),
+        excludeFromSpend: input.excludeFromSpend,
         categoryMajor,
         categoryMinor,
         categoryGroup,
@@ -1013,7 +1016,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         fixedExpenseMonth: month,
       })
 
-      const visible = categoryMajor === '생활비' || categoryId === 'savings'
+      const visible =
+        categoryMajor === '생활비' ||
+        categoryId === 'savings' ||
+        categoryGroup === '집계 제외' ||
+        Boolean(transaction.excludeFromSpend)
       if (visible) {
         setState((current) => {
           const alreadyVisible = current.transactions.some(

@@ -10,6 +10,7 @@ import type {
   Settings,
   Transaction,
 } from '../types'
+import { isExcludedFromSpend } from './analytics'
 import { appCategoryForSheet } from './fixedExpenses'
 import { withSavingsDefaults } from './savings'
 import { requireSupabase } from './supabase'
@@ -226,6 +227,16 @@ function toTransaction(row: TransactionRow): Transaction {
     cardId: row.card_id,
     memo: row.memo ?? undefined,
     excluded: Boolean(row.excluded),
+    excludeFromSpend:
+      row.category_group === '집계 제외' ||
+      isExcludedFromSpend({
+        categoryId: row.category_id,
+        categoryGroup: row.category_group,
+        categoryMinor: row.category_minor,
+        merchant: fallbackMerchant,
+        memo: row.memo,
+        cardId: row.card_id,
+      }),
     categoryMajor: row.category_major ?? undefined,
     categoryMinor: row.category_minor ?? undefined,
     categoryGroup: row.category_group ?? undefined,
@@ -246,6 +257,10 @@ function fromTransaction(householdId: string, transaction: Transaction) {
   const normalized = withSavingsDefaults(transaction)
   const paymentMethod = paymentMethodFor(normalized)
   const usesCard = ['신용카드', '체크카드', '간편결제'].includes(paymentMethod)
+  const categoryGroup =
+    normalized.excludeFromSpend || normalized.categoryGroup === '집계 제외'
+      ? '집계 제외'
+      : (normalized.categoryGroup ?? '생활비')
   return {
     household_id: householdId,
     id: normalized.id,
@@ -259,7 +274,7 @@ function fromTransaction(householdId: string, transaction: Transaction) {
     category_major: normalized.categoryMajor ?? '생활비',
     category_minor:
       normalized.categoryMinor ?? sheetMinorFor(normalized.categoryId),
-    category_group: normalized.categoryGroup ?? '생활비',
+    category_group: categoryGroup,
     correction: normalized.correction ?? 0,
     payment_method: paymentMethod,
     note: normalized.note ?? null,
