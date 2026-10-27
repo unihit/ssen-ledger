@@ -373,6 +373,11 @@ begin
     v_after := to_jsonb(new);
     v_actor := coalesce(new.created_by, new.updated_by, auth.uid()::text, 'system');
   elsif tg_op = 'UPDATE' then
+    -- 실질적인 비즈니스 필드 변경이 없는 경우(단순 updated_at 등만 변경) 로그 기록 생략
+    if (to_jsonb(old) - 'updated_at') = (to_jsonb(new) - 'updated_at') then
+      return new;
+    end if;
+
     v_before := to_jsonb(old);
     v_after := to_jsonb(new);
     if v_entity_type = 'transaction' then
@@ -739,5 +744,95 @@ drop index if exists public.transactions_household_date_idx;
 -- RLS 성능 최적화를 위한 사용자-가구 복합 인덱스
 create index if not exists household_members_user_household_idx
 on public.household_members (user_id, household_id);
+
+-- ---------------------------------------------------------------------------
+-- 10. 최적화: 가구 단위 복합 FK 제약 조건 및 감사 로그 보관 인덱스 (Phase 2)
+-- ---------------------------------------------------------------------------
+
+-- 1. recurring_expenses (household_id, id) 복합 UNIQUE (복합 FK 참조용)
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'recurring_expenses_household_id_id_key'
+  ) then
+    alter table public.recurring_expenses
+      add constraint recurring_expenses_household_id_id_key
+      unique (household_id, id);
+  end if;
+end $$;
+
+-- 2. transactions -> recurring_expenses 가구 일치 복합 FK
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'transactions_fixed_expense_fk'
+  ) then
+    alter table public.transactions
+      add constraint transactions_fixed_expense_fk
+      foreign key (household_id, fixed_expense_id)
+      references public.recurring_expenses (household_id, id)
+      on delete set null;
+  end if;
+end $$;
+
+-- 3. recurring_expenses -> cards 가구 일치 복합 FK
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'recurring_expenses_card_fk'
+  ) then
+    alter table public.recurring_expenses
+      add constraint recurring_expenses_card_fk
+      foreign key (household_id, card_id)
+      references public.cards (household_id, id)
+      on delete set null;
+  end if;
+end $$;
+
+-- 4. transactions 고정지출 링크 무결성 CHECK
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'transactions_fixed_link_check'
+  ) then
+    alter table public.transactions
+      add constraint transactions_fixed_link_check
+      check (
+        (fixed_expense_id is null and fixed_expense_month is null)
+        or
+        (
+          fixed_expense_id is not null
+          and fixed_expense_month is not null
+          and extract(day from fixed_expense_month) = 1
+        )
+      );
+  end if;
+end $$;
+
+-- 5. recurring_expenses 월 범위 유효성 CHECK
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'recurring_expenses_month_range_check'
+  ) then
+    alter table public.recurring_expenses
+      add constraint recurring_expenses_month_range_check
+      check (
+        (start_month is null or extract(day from start_month) = 1)
+        and
+        (end_month is null or extract(day from end_month) = 1)
+        and
+        (
+          start_month is null
+          or end_month is null
+          or start_month <= end_month
+        )
+      );
+  end if;
+end $$;
+
+-- 6. ledger_history 보관 주기/정리용 created_at 인덱스
+create index if not exists ledger_history_retention_idx
+on public.ledger_history (created_at);
 
 notify pgrst, 'reload schema';
