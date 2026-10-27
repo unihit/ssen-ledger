@@ -107,9 +107,13 @@ function sheetMinorFor(categoryId: Transaction['categoryId']): string {
     case 'travel':
       return '기타'
     case 'culture':
+      return '기타'
+    case 'game':
       return '게임'
     case 'medical':
       return '건강'
+    case 'insurance':
+      return '보험료'
     case 'living':
       return '생활'
     case 'education':
@@ -228,7 +232,11 @@ function toTransaction(row: TransactionRow): Transaction {
     categoryId:
       row.category_minor === '상품권'
         ? 'giftcard'
-        : row.category_id,
+        : row.category_minor === '보험료'
+          ? 'insurance'
+          : row.category_minor === '게임'
+            ? 'game'
+            : row.category_id,
     cardId: row.card_id,
     memo: row.memo ?? undefined,
     excluded: Boolean(row.excluded),

@@ -239,11 +239,19 @@ export function TransactionModal({
       merchant.trim() || (savingsCategory ? '저축' : `${categoryLabel} 결제`)
     const categoryGroup = effectiveExcludeFromSpend
       ? '집계 제외'
-      : (initial?.categoryGroup ?? (fixedExpense ? fixedExpense.categoryGroup : '생활비'))
+      : initial?.categoryGroup === '집계 제외'
+        ? '생활비'
+        : (initial?.categoryGroup ?? (fixedExpense ? fixedExpense.categoryGroup : '생활비'))
     const categoryMinor =
-      /문화상품권|상품권/i.test(effectiveMerchant) || /문화상품권|상품권/i.test(memo)
+      categoryId === 'giftcard' || /문화상품권/i.test(effectiveMerchant)
         ? '상품권'
-        : (initial?.categoryMinor ?? (fixedExpense ? fixedExpense.categoryMinor : undefined))
+        : categoryId === 'insurance'
+          ? '보험료'
+          : categoryId === 'game'
+            ? '게임'
+            : initial && categoryId !== initial.categoryId
+              ? undefined
+              : (initial?.categoryMinor ?? (fixedExpense ? fixedExpense.categoryMinor : undefined))
     const payload = {
       date,
       merchant: effectiveMerchant,

@@ -211,7 +211,7 @@ export const KB_BONUS_CARD: Card = {
     },
     {
       id: 'kb-bonus-tax-insurance',
-      categoryId: 'living',
+      categoryId: 'insurance',
       rate: 0.07,
       monthlyCap: 9_000,
       minSpend: 300_000,
@@ -449,7 +449,9 @@ export const DEFAULT_SETTINGS: Settings = {
     subscription: 50_000,
     travel: 90_000,
     culture: 65_000,
+    game: 50_000,
     medical: 150_000,
+    insurance: 60_000,
     living: 80_000,
     education: 45_000,
     etc: 110_000,
