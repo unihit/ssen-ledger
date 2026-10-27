@@ -43,6 +43,102 @@ export const MG_PLUS_S_CARD: Card = {
 }
 
 /**
+ * 신한 나라사랑체크카드 (2026-01-05 출시 상품 기준).
+ * - 전월실적 구간별 Life 통합 캐시백 한도:
+ *   10만 이상~20만 미만: 5,000원
+ *   20만 이상~50만 미만: 20,000원
+ *   50만 이상~70만 미만: 30,000원
+ *   70만 이상~100만 미만: 40,000원
+ *   100만 이상: 50,000원
+ * - PX/군마트·CGV·놀이공원 등은 별도 제공
+ */
+export const SHINHAN_NARA_CARD: Card = {
+  id: 'shinhan-nara-check',
+  name: '신한 나라사랑체크카드',
+  issuer: '신한카드',
+  kind: 'check',
+  colorFrom: '#0046ff',
+  colorTo: '#00227a',
+  minSpendForBenefits: 100_000,
+  monthlyTotalCap: 5_000,
+  performanceTiers: [
+    { minSpend: 100_000, monthlyTotalCap: 5_000 },
+    { minSpend: 200_000, monthlyTotalCap: 20_000 },
+    { minSpend: 500_000, monthlyTotalCap: 30_000 },
+    { minSpend: 700_000, monthlyTotalCap: 40_000 },
+    { minSpend: 1_000_000, monthlyTotalCap: 50_000 },
+  ],
+  baseRate: 0,
+  baseCap: 0,
+  active: true,
+  benefits: [
+    {
+      id: 'shinhan-nara-transport',
+      categoryId: 'transport',
+      rate: 0.2,
+      monthlyCap: 5_000,
+      note: '시내버스·지하철 후불교통 20% 캐시백 (월 5,000원 한도) · KTX/고속버스 10% · 카카오T 10%',
+    },
+    {
+      id: 'shinhan-nara-mart',
+      categoryId: 'mart',
+      rate: 0.2,
+      monthlyCap: 5_000,
+      note: 'GS25·CU 20% 캐시백 (일 1회, 월 5회, 건당 최대 1,000원) · CU 행사상품 10% 현장할인',
+    },
+    {
+      id: 'shinhan-nara-cafe',
+      categoryId: 'cafe',
+      rate: 0.05,
+      monthlyCap: 6_000,
+      note: '스타벅스·이디야·메가MGC·컴포즈·빽다방 5% 캐시백 (일 1회, 월 3회, 건당 최대 2,000원)',
+    },
+    {
+      id: 'shinhan-nara-delivery',
+      categoryId: 'delivery',
+      rate: 0.05,
+      monthlyCap: 5_000,
+      note: '배달의민족 앱 결제 5% 캐시백 (일 1회, 월 5회, 건당 최대 1,000원)',
+    },
+    {
+      id: 'shinhan-nara-telecom',
+      categoryId: 'telecom',
+      rate: 0.05,
+      monthlyCap: 5_000,
+      note: '통신요금 자동이체 5% 캐시백 (SKT·KT·LGU+ 및 알뜰폰허브, 월 1회, 건당 최대 5,000원)',
+    },
+    {
+      id: 'shinhan-nara-subscription',
+      categoryId: 'subscription',
+      rate: 0.1,
+      monthlyCap: 5_000,
+      note: 'OTT 10% 캐시백 (유튜브 프리미엄·넷플릭스·티빙 공식 홈페이지 결제)',
+    },
+    {
+      id: 'shinhan-nara-shopping',
+      categoryId: 'shopping',
+      rate: 0.1,
+      monthlyCap: 6_000,
+      note: '무신사·29CM 공식 앱/웹 결제 10% 캐시백 (월 6,000원 한도)',
+    },
+    {
+      id: 'shinhan-nara-culture',
+      categoryId: 'culture',
+      rate: 0.2,
+      monthlyCap: 6_000,
+      note: 'CGV 2D 티켓 6,000원 구매 (월 1회 2매) · 알라딘/YES24 5% · 에버랜드/롯데월드 50% (30만원 이상, 연 3회)',
+    },
+    {
+      id: 'shinhan-nara-living',
+      categoryId: 'living',
+      rate: 0.2,
+      monthlyCap: 100_000,
+      note: '군 PX 및 GS25 해군마트 20% 캐시백 (3만원 미만 일 1,000원, 3만원 이상 20%, 매월 10일 50%, 전월실적 무관)',
+    },
+  ],
+}
+
+/**
  * 실제 보유 카드 목록.
  *
  * 혜택은 2026-10 기준 공개된 상품 안내를 바탕으로 앱의 카테고리/한도 모델에
@@ -51,6 +147,7 @@ export const MG_PLUS_S_CARD: Card = {
  */
 const MY_CARDS: Card[] = [
   MG_PLUS_S_CARD,
+  SHINHAN_NARA_CARD,
   {
     id: 'kb-nara-check',
     name: 'KB국민 나라사랑체크카드',
