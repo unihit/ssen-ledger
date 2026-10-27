@@ -183,6 +183,39 @@ p {
   display: none;
 }
 
+/* ---------- update banner ---------- */
+.update-banner {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px 9px 15px;
+  border-radius: 999px;
+  background: var(--text);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 14px 32px rgba(16, 24, 40, 0.28);
+  animation: rise 0.24s ease both;
+}
+
+.update-banner button {
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 13px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.update-banner button:hover {
+  background: var(--accent-strong);
+}
+
 /* ---------- page head ---------- */
 .page {
   display: flex;
@@ -2834,6 +2867,14 @@ select:focus {
     background: var(--accent);
     color: #fff;
     box-shadow: 0 12px 24px rgba(49, 130, 246, 0.42);
+  }
+
+  .update-banner {
+    right: 82px;
+    left: 16px;
+    bottom: calc(84px + env(safe-area-inset-bottom));
+    padding: 8px 9px 8px 14px;
+    font-size: 12.5px;
   }
 
   .page {

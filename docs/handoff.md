@@ -271,7 +271,8 @@ curl.exe "https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api/v1/met
   8. Realtime은 `transactions`, `cards`, `households`, `recurring_expenses`를 구독합니다. 다른 탭에서 반영하거나 템플릿을 수정해도 자동으로 다시 읽습니다.
 - `결제수단`이 `자동이체`·`계좌이체`·`현금`이면 카드 입력란을 표시하지 않고 카드 실적·혜택 계산에서도 제외합니다. 카드 결제수단을 고른 경우에만 카드를 선택합니다.
 - 일반 내역 입력 시 같은 날짜·분류·금액의 활성 거래가 이미 있으면 저장 전에 `이미 있는 거래예요` 경고를 띄우고, 사용자가 `그래도 저장`을 눌러야 저장합니다.
-- 샘플/시드 거래는 `transactions.source = 'seed'`로 저장하고 가계부 목록에 `테스트` 배지를 표시합니다. 실데이터와 섞이지 않도록 초기 입력·데모 데이터에만 사용합니다.
+- 샘플/시드 거래는 `transactions.source = 'seed'`로 저장하고 가계부 목록에 `테스트` 배지를 표시합니다. 실데이터와 섞이지 않도록 초기 입력·데모 데이터에만 사용합니다. 앱에서 시드 거래를 취소해도 `source` 표식은 `seed`로 유지하고 `cancel_reason`·`ledger_history`만 남깁니다.
+- 배포가 바뀐 뒤 이미 열려 있던 탭은 새로고침 전까지 이전 번들의 판정 로직을 계속 실행합니다. 탭으로 돌아올 때 새 번들을 확인하고, 다르면 `새 버전이 나왔어요` 배너로 새로고침을 안내합니다.
 - `day_of_month = 31`은 **말일**입니다. 2월은 28/29일, 30일까지 있는 달은 30일로 계산합니다.
 - 보험료처럼 실제 결제일이 달라지는 항목은 반영 시 날짜를 바꿀 수 있고, Agent API의 `apply`에 `date`를 보내 기존 거래 날짜를 수정할 수 있습니다.
 - 고정지출 숨기기는 `active = false` 소프트 삭제입니다. 이미 반영된 거래는 취소·삭제하지 않습니다.
@@ -361,16 +362,20 @@ curl.exe https://iglonavoqsihzdobfadh.supabase.co/functions/v1/agent-api/v1/heal
 ## 8. 최근 커밋 이력
 
 ```text
+34315eb Document loan-principal cleanup and savings category mismatch
+b67b879 Keep insurance as a manual entry, not a fixed expense
+25eca9b Match fixed expenses by id and month and warn on duplicates
+ca662a6 Subscribe realtime to recurring expenses and mirror cloud visibility
+9616dd9 Keep fixed expense marked recorded when transaction is off-screen
+b088e29 Reuse existing fixed expense transaction when applying
 d7f8c5a Show minimum transaction benefit conditions
-ddb4b04 Normalize simple payment method aliases
-b3fe636 Support simple payment method for card benefits
-4628be3 Set TalkTalk my point card to 5.5% up to 200k
-b9bf475 Accept card names in Muse payment method
 ```
 
-- `b3fe636`: `BenefitRule.paymentMethods` 추가, MG+ S 간편결제 규칙 연결
-- `ddb4b04`: `카카오T 간편결제`, `카카오페이` 등을 `간편결제`로 정규화
-- `d7f8c5a`: 카드 혜택 조건과 거래별 혜택 제외 배지 표시
+- `b088e29`: 반영 시 같은 달의 기존 활성 거래를 재사용해 중복 insert를 막음
+- `9616dd9`: 대출상환처럼 생활비 목록 밖에 있는 거래도 `기록됨`으로 유지
+- `25eca9b`: `fixed_expense_id`+`fixed_expense_month` 엄격 매칭, 후보 연결, 수동 입력 중복 경고
+- `34315eb`: 대출원금 중복 정리와 IRP 분류 한계 문서화
+- 이후 커밋: 새 버전 감지 배너 추가, 취소 시 시드 출처(`source = 'seed'`) 유지
 
 ---
 

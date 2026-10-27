@@ -469,7 +469,7 @@ export async function deleteTransactionRemote(
       status: 'canceled',
       canceled_at: new Date().toISOString(),
       cancel_reason: '앱에서 취소',
-      source: 'app',
+      // 시드·Muse가 만든 거래의 출처 표식은 취소해도 유지한다.
       updated_by: 'app',
     })
     .eq('household_id', householdId)

@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { Icon, type IconName } from './components/Icon'
 import { TransactionModal } from './components/TransactionModal'
+import { UpdateBanner } from './components/UpdateBanner'
 import { useApp } from './store'
 import type { Tab } from './nav'
 import type { FixedExpense, Transaction } from './types'
@@ -122,6 +123,8 @@ export default function App() {
       </button>
 
       {nav(true)}
+
+      <UpdateBanner />
 
       {editor && (
         <TransactionModal
