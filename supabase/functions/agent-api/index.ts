@@ -506,6 +506,7 @@ interface NormalizedTransaction {
   excludeFromSpend?: boolean
   excluded?: boolean
   categoryGroup?: string
+  source?: string
 }
 
 function validateTransactionInput(raw: Record<string, unknown>): NormalizedTransaction {
@@ -636,6 +637,10 @@ function validateTransactionInput(raw: Record<string, unknown>): NormalizedTrans
     categoryGroup:
       typeof body.categoryGroup === 'string'
         ? body.categoryGroup.trim()
+        : undefined,
+    source:
+      typeof body.source === 'string' && body.source.trim()
+        ? body.source.trim()
         : undefined,
   }
 }
@@ -962,7 +967,7 @@ async function createTransaction(req: Request, householdId: string) {
     payment_method: normalizedPaymentMethod,
     note: input.note,
     status: 'active',
-    source: 'muse',
+    source: input.source ?? 'muse',
     created_by: 'muse',
     updated_by: 'muse',
   }
@@ -1158,7 +1163,7 @@ async function updateTransaction(
     correction: input.correction,
     payment_method: normalizedPaymentMethod,
     note: input.note,
-    source: 'muse',
+    source: input.source ?? 'muse',
     updated_by: 'muse',
   }
 
