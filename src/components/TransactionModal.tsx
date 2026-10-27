@@ -93,6 +93,8 @@ export function TransactionModal({
   )
   // 후보가 있어도 기본은 새 거래로 반영한다. 연결은 사용자가 직접 선택한다.
   const [useLinkedCandidate, setUseLinkedCandidate] = useState(false)
+  // 새 거래로 반영을 누르면 기존 후보가 지출에 남는다는 것을 한 번 더 확인한다.
+  const [confirmNewWithCandidate, setConfirmNewWithCandidate] = useState(false)
 
   // 날짜·금액·분류를 바꾸면 이전 중복 경고는 더 이상 유효하지 않다.
   useEffect(() => {
@@ -113,6 +115,11 @@ export function TransactionModal({
     matchingCandidates.find((candidate) => candidate.id === linkCandidateId)?.id ??
     matchingCandidates[0]?.id ??
     null
+
+  useEffect(() => {
+    setConfirmNewWithCandidate(false)
+  }, [date, amount, categoryId, useLinkedCandidate, matchingCandidates.length])
+
   // 자동이체·계좌이체·현금은 카드가 아니므로 카드 선택·혜택 계산 대상이 아니다.
   const cardApplicable =
     !savingsCategory &&
@@ -226,6 +233,12 @@ export function TransactionModal({
     }
 
     if (fixedExpense) {
+      if (!useLinkedCandidate && matchingCandidates.length > 0 && !confirmDuplicate) {
+        setConfirmNewWithCandidate(true)
+        setError('')
+        return
+      }
+      setConfirmNewWithCandidate(false)
       setSaving(true)
       setError('')
       try {
@@ -372,8 +385,8 @@ export function TransactionModal({
           <div className="duplicate-panel" role="status">
             <strong>같은 날짜·금액 거래가 이미 있어요</strong>
             <p>
-              기존 거래에 연결하면 중복 없이 고정지출로 표시돼요. 연결하지
-              않으면 새 거래가 추가돼요.
+              기존 거래에 연결하면 중복 없이 고정지출로 표시돼요. 연결하지 않고
+              새 거래로 반영하면 기존 거래와 함께 두 번 잡혀요.
             </p>
             <label className="duplicate-option">
               <input
@@ -418,6 +431,53 @@ export function TransactionModal({
             </label>
           </div>
         )}
+
+        {fixedExpense &&
+          matchingCandidates.length > 0 &&
+          !useLinkedCandidate &&
+          confirmNewWithCandidate && (
+            <div className="duplicate-panel duplicate-panel--warn" role="alert">
+              <strong>기존 거래가 지출에 그대로 남아요</strong>
+              <p>
+                새 거래로 반영하면 아래 거래와 합쳐져 이번 달 지출이 두 번
+                잡힙니다. 기존 거래에 연결하거나, 반영 후 기존 거래를 취소해
+                주세요.
+              </p>
+              <ul className="duplicate-list">
+                {matchingCandidates.map((candidate) => (
+                  <li key={candidate.id}>
+                    <span>
+                      {candidate.merchant || '이름 없는 거래'} · {candidate.date} ·{' '}
+                      {won(candidate.amount)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="duplicate-panel__actions">
+                <button
+                  type="button"
+                  className="btn btn--tiny btn--ghost"
+                  onClick={() => setConfirmNewWithCandidate(false)}
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--tiny btn--ghost"
+                  onClick={() => setUseLinkedCandidate(true)}
+                >
+                  기존 거래에 연결
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--tiny btn--primary"
+                  onClick={() => void submit(true)}
+                >
+                  그래도 새로 반영
+                </button>
+              </div>
+            </div>
+          )}
 
         {duplicates.length > 0 && (
           <div className="duplicate-panel duplicate-panel--warn" role="alert">
