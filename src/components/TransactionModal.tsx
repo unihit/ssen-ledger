@@ -91,8 +91,10 @@ export function TransactionModal({
   const [linkCandidateId, setLinkCandidateId] = useState<string | null>(
     candidates[0]?.id ?? null,
   )
-  // 후보가 있어도 기본은 새 거래로 반영한다. 연결은 사용자가 직접 선택한다.
-  const [useLinkedCandidate, setUseLinkedCandidate] = useState(false)
+  // 같은 날짜·금액 후보가 있으면 기본은 기존 거래에 연결한다. 중복 반영을 막는 기본값이다.
+  const [useLinkedCandidate, setUseLinkedCandidate] = useState(
+    candidates.length > 0,
+  )
   // 새 거래로 반영을 누르면 기존 후보가 지출에 남는다는 것을 한 번 더 확인한다.
   const [confirmNewWithCandidate, setConfirmNewWithCandidate] = useState(false)
 
@@ -397,7 +399,10 @@ export function TransactionModal({
               />
               <span>
                 기존 거래에 연결
-                <small>금액·날짜·가맹점은 기존 기록을 그대로 둬요.</small>
+                <small>
+                  중복 없이 기록해요. 같은 날짜·금액 거래가 있으면 기본으로
+                  선택돼요.
+                </small>
               </span>
             </label>
             {useLinkedCandidate && (
