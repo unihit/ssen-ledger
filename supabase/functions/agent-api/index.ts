@@ -1042,6 +1042,8 @@ async function listTransactions(req: Request, householdId: string) {
   if (categoryMajor) query = query.eq('category_major', categoryMajor)
   const categoryMinor = params.get('categoryMinor')
   if (categoryMinor) query = query.eq('category_minor', categoryMinor)
+  const categoryGroup = params.get('categoryGroup') ?? params.get('group')
+  if (categoryGroup) query = query.eq('category_group', categoryGroup)
 
   const q = params.get('q')
   if (q && q.trim()) {
@@ -1513,6 +1515,15 @@ async function monthlyAggregate(householdId: string, monthInput: string) {
   const byType: Record<string, number> = Object.fromEntries(
     TRANSACTION_TYPES.map((type) => [type, 0]),
   )
+  const byGroup: Record<string, number> = {
+    수입: 0,
+    생활비: 0,
+    투자납입: 0,
+    투자회수: 0,
+    대출차입: 0,
+    대출상환: 0,
+    '집계 제외': 0,
+  }
   const categoryMap = new Map<
     string,
     {
@@ -1529,9 +1540,12 @@ async function monthlyAggregate(householdId: string, monthInput: string) {
     const major = String(row.category_major)
     const minor = String(row.category_minor)
     const group = String(row.category_group)
-    byType[major] = (byType[major] ?? 0) + amount
+    byGroup[group] = (byGroup[group] ?? 0) + amount
+    if (group !== '집계 제외' || major === '계좌이체') {
+      byType[major] = (byType[major] ?? 0) + amount
+    }
 
-    const key = `${major}|${minor}`
+    const key = `${major}|${minor}|${group}`
     const current = categoryMap.get(key) ?? {
       categoryMajor: major,
       categoryMinor: minor,
@@ -1551,13 +1565,14 @@ async function monthlyAggregate(householdId: string, monthInput: string) {
     .filter((row) => row.categoryGroup === '생활비')
     .slice(0, 10)
 
-  const income = byType['수입'] ?? 0
-  const livingExpense = byType['생활비'] ?? 0
+  const income = byGroup['수입'] ?? 0
+  const livingExpense = byGroup['생활비'] ?? 0
+  const excludedFromSpend = byGroup['집계 제외'] ?? 0
   const livingSurplus = income - livingExpense
-  const investmentContribution = byType['투자납입'] ?? 0
-  const investmentWithdrawal = byType['투자회수'] ?? 0
-  const loanBorrowing = byType['대출차입'] ?? 0
-  const principalRepayment = byType['대출상환'] ?? 0
+  const investmentContribution = byGroup['투자납입'] ?? 0
+  const investmentWithdrawal = byGroup['투자회수'] ?? 0
+  const loanBorrowing = byGroup['대출차입'] ?? 0
+  const principalRepayment = byGroup['대출상환'] ?? 0
   const distributionBalance =
     livingSurplus -
     investmentContribution +
@@ -1585,6 +1600,7 @@ async function monthlyAggregate(householdId: string, monthInput: string) {
     month,
     income,
     livingExpense,
+    excludedFromSpend,
     livingSurplus,
     investmentContribution,
     investmentWithdrawal,
@@ -1593,6 +1609,7 @@ async function monthlyAggregate(householdId: string, monthInput: string) {
     distributionBalance,
     transactionCount: rows.length,
     reviewCount,
+    byGroup,
     byType,
     byCategory,
     topExpenses,
@@ -2474,6 +2491,8 @@ async function handle(req: Request): Promise<Response> {
     const aggregate = await monthlyAggregate(householdId, month)
     return dataResponse({
       month: aggregate.month,
+      excludedFromSpend: aggregate.excludedFromSpend,
+      byGroup: aggregate.byGroup,
       byType: aggregate.byType,
       byCategory: aggregate.byCategory,
       topExpenses: aggregate.topExpenses,
