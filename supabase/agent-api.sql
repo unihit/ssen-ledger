@@ -683,4 +683,61 @@ grant execute on function public.app_category_to_sheet_minor(text) to authentica
 -- 8. PostgREST 스키마 캐시 갱신
 -- ---------------------------------------------------------------------------
 
+-- ---------------------------------------------------------------------------
+-- 9. 최적화: 월별 카테고리 집계 Stored Function 및 인덱스 (Phase 1)
+-- ---------------------------------------------------------------------------
+
+create or replace function public.get_monthly_category_summary(
+  p_household_id uuid,
+  p_month date
+)
+returns table (
+  category_group text,
+  category_major text,
+  category_minor text,
+  total_amount numeric,
+  transaction_count bigint
+)
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select
+    coalesce(t.category_group, '생활비') as category_group,
+    t.category_major,
+    t.category_minor,
+    coalesce(sum(t.effective_amount), 0)::numeric as total_amount,
+    count(*)::bigint as transaction_count
+  from public.transactions t
+  where t.household_id = p_household_id
+    and t.status = 'active'
+    and t.date >= date_trunc('month', p_month)::date
+    and t.date < (date_trunc('month', p_month) + interval '1 month')::date
+  group by
+    coalesce(t.category_group, '생활비'),
+    t.category_major,
+    t.category_minor;
+$$;
+
+revoke execute on function public.get_monthly_category_summary(uuid, date) from public, anon;
+grant execute on function public.get_monthly_category_summary(uuid, date) to authenticated, service_role;
+
+-- 실제 목록 정렬(date desc, created_at desc, id desc)에 맞춘 활성 거래 부분 인덱스
+create index if not exists transactions_active_list_idx
+on public.transactions (
+  household_id,
+  date desc,
+  created_at desc,
+  id desc
+)
+where status = 'active';
+
+-- 중복 선행 인덱스 제거 (transactions_household_date_id_idx에 흡수됨)
+drop index if exists public.transactions_household_date_idx;
+
+-- RLS 성능 최적화를 위한 사용자-가구 복합 인덱스
+create index if not exists household_members_user_household_idx
+on public.household_members (user_id, household_id);
+
 notify pgrst, 'reload schema';

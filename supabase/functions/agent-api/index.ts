@@ -1504,19 +1504,17 @@ async function putBalance(
 async function monthlyAggregate(householdId: string, monthInput: string) {
   const month = normalizeMonth(monthInput)
   const range = monthRange(month)
+  const monthDate = `${month}-01`
 
-  const { data, error } = await db()
-    .from('transactions')
-    .select('*')
-    .eq('household_id', householdId)
-    .eq('status', 'active')
-    .gte('date', range.from)
-    .lte('date', range.to)
-    .limit(5000)
+  // SQL RPC: DB 엔진에서 그룹별·분류별 사전 집계하여 가져옴 (5,000건 원본 행 전송 제거)
+  const { data: summaryRows, error: summaryError } = await db()
+    .rpc('get_monthly_category_summary', {
+      p_household_id: householdId,
+      p_month: monthDate,
+    })
 
-  if (error) throw dbError(error)
+  if (summaryError) throw dbError(summaryError)
 
-  const rows = annotateRows((data ?? []) as Record<string, unknown>[])
   const byType: Record<string, number> = Object.fromEntries(
     TRANSACTION_TYPES.map((type) => [type, 0]),
   )
@@ -1540,11 +1538,22 @@ async function monthlyAggregate(householdId: string, monthInput: string) {
     }
   >()
 
-  for (const row of rows) {
-    const amount = effectiveAmount(row)
-    const major = String(row.category_major)
-    const minor = String(row.category_minor)
-    const group = String(row.category_group)
+  let totalTransactionCount = 0
+
+  for (const row of (summaryRows ?? []) as Array<{
+    category_group: string
+    category_major: string
+    category_minor: string
+    total_amount: number | string
+    transaction_count: number | string
+  }>) {
+    const amount = Number(row.total_amount) || 0
+    const count = Number(row.transaction_count) || 0
+    const major = String(row.category_major || '생활비')
+    const minor = String(row.category_minor || '기타')
+    const group = String(row.category_group || '생활비')
+
+    totalTransactionCount += count
     byGroup[group] = (byGroup[group] ?? 0) + amount
     if (group !== '집계 제외' || major === '계좌이체') {
       byType[major] = (byType[major] ?? 0) + amount
@@ -1559,7 +1568,7 @@ async function monthlyAggregate(householdId: string, monthInput: string) {
       count: 0,
     }
     current.amount += amount
-    current.count += 1
+    current.count += count
     categoryMap.set(key, current)
   }
 
@@ -1585,9 +1594,19 @@ async function monthlyAggregate(householdId: string, monthInput: string) {
     loanBorrowing -
     principalRepayment
 
-  const reviewCount = rows.filter(
-    (row) => Array.isArray(row.review_alerts) && row.review_alerts.length > 0,
-  ).length
+  // 검토 대상(미래 날짜 등) 경량 카운트 (행 전송 없이 HEAD 집계)
+  const today = todayKst()
+  const { count: futureCount, error: countError } = await db()
+    .from('transactions')
+    .select('id', { count: 'exact', head: true })
+    .eq('household_id', householdId)
+    .eq('status', 'active')
+    .gte('date', range.from)
+    .lte('date', range.to)
+    .gt('date', today)
+
+  if (countError) throw dbError(countError)
+  const reviewCount = futureCount ?? 0
 
   const balanceRowsAll = await balanceRows(householdId)
   const balanceIndex = balanceRowsAll.findIndex((row) =>
@@ -1612,7 +1631,7 @@ async function monthlyAggregate(householdId: string, monthInput: string) {
     loanBorrowing,
     principalRepayment,
     distributionBalance,
-    transactionCount: rows.length,
+    transactionCount: totalTransactionCount,
     reviewCount,
     byGroup,
     byType,
