@@ -92,6 +92,8 @@ function sheetMinorFor(categoryId: Transaction['categoryId']): string {
       return '외식비'
     case 'shopping':
       return '의복/미용'
+    case 'giftcard':
+      return '상품권'
     case 'simplepay':
       return '기타'
     case 'transport':
@@ -223,7 +225,10 @@ function toTransaction(row: TransactionRow): Transaction {
     date: row.date,
     merchant: fallbackMerchant,
     amount: Number(row.amount) || 0,
-    categoryId: row.category_id,
+    categoryId:
+      row.category_minor === '상품권'
+        ? 'giftcard'
+        : row.category_id,
     cardId: row.card_id,
     memo: row.memo ?? undefined,
     excluded: Boolean(row.excluded),

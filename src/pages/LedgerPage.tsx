@@ -88,9 +88,11 @@ export function LedgerPage({
       .filter((transaction) => {
         if (!keyword) return true
         const categoryLabel = categoryOf(transaction.categoryId).label
+        const minor = transaction.categoryMinor ?? ''
         return (
           transaction.merchant.toLowerCase().includes(keyword) ||
           categoryLabel.includes(keyword) ||
+          minor.includes(keyword) ||
           (transaction.memo ?? '').toLowerCase().includes(keyword)
         )
       })

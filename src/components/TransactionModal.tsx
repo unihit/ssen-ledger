@@ -596,7 +596,8 @@ export function TransactionModal({
             onChange={(event) => {
               const val = event.target.value
               setMerchant(val)
-              if (!initial && /문화상품권/i.test(val)) {
+              if (!initial && /상품권/i.test(val)) {
+                setCategoryId('giftcard')
                 setExcludeFromSpend(true)
                 setExcluded(false)
               }
@@ -620,6 +621,10 @@ export function TransactionModal({
                   if (isSavingsCategory(category.id)) {
                     setCardId(null)
                     setExcluded(true)
+                    setExcludeFromSpend(false)
+                  } else if (category.id === 'giftcard') {
+                    setExcludeFromSpend(true)
+                    setExcluded(false)
                   } else if (savingsCategory) {
                     setExcluded(false)
                   }

@@ -4,6 +4,7 @@ export type CategoryId =
   | 'mart'
   | 'delivery'
   | 'shopping'
+  | 'giftcard'
   | 'simplepay'
   | 'transport'
   | 'fuel'

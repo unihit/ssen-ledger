@@ -22,7 +22,7 @@ const SHEET_TO_APP_CATEGORY: Record<string, CategoryId> = {
   '생활비|건강': 'medical',
   '생활비|교통': 'transport',
   '생활비|경조사': 'etc',
-  '생활비|상품권': 'shopping',
+  '생활비|상품권': 'giftcard',
   '생활비|보험료': 'etc',
   '생활비|회비': 'etc',
   '생활비|기부금': 'etc',

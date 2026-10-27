@@ -6,6 +6,7 @@ export const CATEGORIES: Category[] = [
   { id: 'mart', label: '마트·편의점', emoji: '🛒', color: '#4e9aff' },
   { id: 'delivery', label: '배달', emoji: '🛵', color: '#ff6b6b' },
   { id: 'shopping', label: '쇼핑', emoji: '🛍️', color: '#ff5c8a' },
+  { id: 'giftcard', label: '상품권', emoji: '🎁', color: '#e11d48' },
   { id: 'simplepay', label: '간편결제', emoji: '💳', color: '#14b8a6' },
   { id: 'transport', label: '대중교통', emoji: '🚇', color: '#36c98f' },
   { id: 'fuel', label: '주유·차량', emoji: '⛽', color: '#f4b740' },

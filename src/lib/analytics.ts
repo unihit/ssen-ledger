@@ -52,6 +52,7 @@ export function isExcludedFromSpend(transaction: {
   cardId?: string | null
 }): boolean {
   if (isSavingsCategory(transaction.categoryId)) return true
+  if (transaction.categoryId === 'giftcard') return true
   if (transaction.excludeFromSpend) return true
   if (transaction.categoryGroup === '집계 제외') return true
 
@@ -59,14 +60,13 @@ export function isExcludedFromSpend(transaction: {
   if (transaction.merchant && /실적\s*채움/i.test(transaction.merchant)) return true
   if (transaction.memo && /실적\s*채우기|전월실적\s*더미|노카운트/i.test(transaction.memo)) return true
 
-  // 카드로 결제한 문화상품권 / 실적용 상품권
+  // 문화상품권 / 실적용 상품권
   if (
-    transaction.cardId &&
-    ((transaction.merchant && /문화상품권/i.test(transaction.merchant)) ||
-      (transaction.memo && /문화상품권/i.test(transaction.memo)) ||
-      (transaction.categoryMinor === '상품권' &&
-        transaction.memo &&
-        /실적/i.test(transaction.memo)))
+    (transaction.merchant && /문화상품권/i.test(transaction.merchant)) ||
+    (transaction.memo && /문화상품권/i.test(transaction.memo)) ||
+    (transaction.categoryMinor === '상품권' &&
+      transaction.memo &&
+      /실적/i.test(transaction.memo))
   ) {
     return true
   }
