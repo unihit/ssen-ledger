@@ -231,6 +231,95 @@ export const KB_BONUS_CARD: Card = {
 }
 
 /**
+ * 롯데카드 LOCA 365.
+ * - 전월실적: 50만원 이상
+ * - 월 총 할인한도: 최대 36,500원 (7개 생활업종 각 5,000원 + 디지털구독 1,500원)
+ * - 아파트관리비, 도시가스/전기료, 이동통신, 대중교통, 배달앱, 보험료, 학습지 각 10% (건당 2만원 이상)
+ * - 스트리밍 1,500원 결제일 할인 (월 1회)
+ * - 특징: 할인받은 매출 건도 전월실적에 정상 포함
+ */
+export const LOTTE_LOCA_365_CARD: Card = {
+  id: 'lotte-loca-365',
+  name: 'LOCA 365 카드',
+  issuer: '롯데카드',
+  kind: 'credit',
+  colorFrom: '#1e293b',
+  colorTo: '#0f172a',
+  minSpendForBenefits: 500_000,
+  monthlyTotalCap: 36_500,
+  performanceTiers: [
+    { minSpend: 500_000, monthlyTotalCap: 36_500 },
+  ],
+  baseRate: 0,
+  baseCap: 0,
+  active: true,
+  benefits: [
+    {
+      id: 'lotte-loca-365-living',
+      categoryId: 'living',
+      rate: 0.1,
+      monthlyCap: 10_000,
+      minSpend: 500_000,
+      minTransactionAmount: 20_000,
+      note: '아파트관리비·도시가스·전기료 10% 결제일 할인 (건당 2만원 이상, 관리비 5천원 + 공과금 5천원)',
+    },
+    {
+      id: 'lotte-loca-365-telecom',
+      categoryId: 'telecom',
+      rate: 0.1,
+      monthlyCap: 5_000,
+      minSpend: 500_000,
+      minTransactionAmount: 20_000,
+      note: '이동통신(SKT·KT·LG U+) 자동이체 10% 결제일 할인 (건당 2만원 이상, 월 최대 5,000원)',
+    },
+    {
+      id: 'lotte-loca-365-transport',
+      categoryId: 'transport',
+      rate: 0.1,
+      monthlyCap: 5_000,
+      minSpend: 500_000,
+      minTransactionAmount: 20_000,
+      note: '대중교통(시내버스·지하철) 10% 결제일 할인 (월 이용금액 2만원 이상, 월 최대 5,000원)',
+    },
+    {
+      id: 'lotte-loca-365-delivery',
+      categoryId: 'delivery',
+      rate: 0.1,
+      monthlyCap: 5_000,
+      minSpend: 500_000,
+      minTransactionAmount: 20_000,
+      note: '배달앱(배달의민족·요기요·쿠팡이츠) 10% 결제일 할인 (건당 2만원 이상, 월 최대 5,000원)',
+    },
+    {
+      id: 'lotte-loca-365-insurance',
+      categoryId: 'insurance',
+      rate: 0.1,
+      monthlyCap: 5_000,
+      minSpend: 500_000,
+      minTransactionAmount: 20_000,
+      note: '보험료(생명보험·손해보험) 10% 결제일 할인 (건당 2만원 이상, 월 최대 5,000원)',
+    },
+    {
+      id: 'lotte-loca-365-education',
+      categoryId: 'education',
+      rate: 0.1,
+      monthlyCap: 5_000,
+      minSpend: 500_000,
+      minTransactionAmount: 20_000,
+      note: '학습지(교원·대교·웅진씽크빅·구몬 등) 10% 결제일 할인 (건당 2만원 이상, 월 최대 5,000원)',
+    },
+    {
+      id: 'lotte-loca-365-subscription',
+      categoryId: 'subscription',
+      rate: 0.15,
+      monthlyCap: 1_500,
+      minSpend: 500_000,
+      note: '디지털구독(넷플릭스·유튜브프리미엄·왓챠·멜론·지니·디즈니+) 월 1회 1,500원 결제일 할인',
+    },
+  ],
+}
+
+/**
  * 실제 보유 카드 목록.
  *
  * 혜택은 2026-10 기준 공개된 상품 안내를 바탕으로 앱의 카테고리/한도 모델에
@@ -241,6 +330,7 @@ const MY_CARDS: Card[] = [
   MG_PLUS_S_CARD,
   SHINHAN_NARA_CARD,
   KB_BONUS_CARD,
+  LOTTE_LOCA_365_CARD,
   {
     id: 'kb-nara-check',
     name: 'KB국민 나라사랑체크카드',
