@@ -39,7 +39,7 @@ export function isPaymentMethodAllowed(
   method: string,
   card?: { kind: 'credit' | 'check' } | null,
 ): boolean {
-  if (!card) return (CASH_PAYMENT_METHODS as readonly string[]).includes(method)
+  if (!card) return method === '간편결제' || (CASH_PAYMENT_METHODS as readonly string[]).includes(method)
   if (method === '간편결제') return true
   return method === (card.kind === 'check' ? '체크카드' : '신용카드')
 }

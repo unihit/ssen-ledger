@@ -140,7 +140,10 @@ export function TransactionModal({
   const handleCardChange = (nextCardId: string | null) => {
     setCardId(nextCardId)
     if (nextCardId === null) {
-      if ((CARD_PAYMENT_METHODS as readonly string[]).includes(paymentMethod)) {
+      if (
+        (CARD_PAYMENT_METHODS as readonly string[]).includes(paymentMethod) &&
+        paymentMethod !== '간편결제'
+      ) {
         setPaymentMethod('계좌이체')
       }
     } else {
@@ -221,7 +224,7 @@ export function TransactionModal({
       setError(savingsCategory ? '저축 금액을 입력해 주세요.' : '결제 금액을 입력해 주세요.')
       return
     }
-    if (cardApplicable && !cardId) {
+    if (cardApplicable && !cardId && paymentMethod !== '간편결제') {
       setError('결제 카드를 선택하거나 결제수단을 계좌이체·현금으로 바꿔 주세요.')
       return
     }
@@ -689,9 +692,11 @@ export function TransactionModal({
             <span className="field__hint">
               {!cardApplicable
                 ? `${paymentMethod}은(는) 카드가 아니라 카드 실적·혜택 계산에 포함되지 않아요.`
-                : cardId === null
-                  ? '카드를 선택하면 혜택이 계산돼요.'
-                  : '간편결제 혜택(예: MG+ S 10%)은 간편결제를 선택해야 적용돼요.'}
+                : paymentMethod === '간편결제' && cardId === null
+                  ? '페이머니(선불 충전금/계좌) 결제는 카드 실적·혜택 계산에 포함되지 않아요.'
+                  : cardId === null
+                    ? '카드를 선택하면 혜택이 계산돼요.'
+                    : '간편결제 혜택(예: MG+ S 10%)은 간편결제를 선택해야 적용돼요.'}
             </span>
           </div>
         )}
@@ -705,7 +710,7 @@ export function TransactionModal({
           </div>
         ) : cardApplicable ? (
           <div className="field">
-            <label>결제 카드</label>
+            <label>{paymentMethod === '간편결제' ? '결제 수단 / 카드' : '결제 카드'}</label>
             <div className="chip-row">
               <button
                 type="button"
@@ -713,7 +718,7 @@ export function TransactionModal({
                 onClick={() => handleCardChange(null)}
               >
                 <Icon name="wallet" size={16} />
-                현금·계좌
+                {paymentMethod === '간편결제' ? '페이머니 (카드 없음)' : '현금·계좌'}
               </button>
               {state.cards.map((card) => (
                 <button

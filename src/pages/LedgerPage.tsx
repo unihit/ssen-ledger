@@ -69,6 +69,9 @@ export function LedgerPage({
       const name = card?.name ?? '카드'
       return transaction.paymentMethod === '간편결제' ? `${name} (간편결제)` : name
     }
+    if (transaction.paymentMethod === '간편결제') {
+      return '페이머니 (간편결제)'
+    }
     return transaction.paymentMethod || '현금·계좌'
   }
 

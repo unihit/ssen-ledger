@@ -121,7 +121,9 @@ export function FixedExpenseEditModal({
         ? card.kind === 'check'
           ? '체크카드'
           : '신용카드'
-        : '자동이체',
+        : draft.paymentMethod === '간편결제'
+          ? '간편결제'
+          : '자동이체',
     })
   }
 
@@ -433,7 +435,11 @@ export function FixedExpenseEditModal({
                 value={draft.cardId ?? ''}
                 onChange={(event) => handleCardChange(event.target.value)}
               >
-                <option value="">카드 선택</option>
+                <option value="">
+                  {draft.paymentMethod === '간편결제'
+                    ? '페이머니 (카드 없음)'
+                    : '카드 선택'}
+                </option>
                 {state.cards.map((card) => (
                   <option key={card.id} value={card.id}>
                     {card.name}
