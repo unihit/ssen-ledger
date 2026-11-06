@@ -25,6 +25,8 @@ export interface CardMonth {
   /** 이번 달 결제 금액 (실적/혜택 대상) */
   spend: number
   performanceMet: boolean
+  /** 신규 발급 실적 유예 적용 여부 */
+  inGracePeriod: boolean
   /** 다음 달 혜택 기준까지 남은 금액 (이번 달 실적 기준) */
   toRequirement: number
   nextTier: number | null
@@ -129,12 +131,20 @@ export function computeCardMonth(
       transaction.date.startsWith(month),
   )
   const spend = monthTransactions.reduce((total, transaction) => total + transaction.amount, 0)
-  const performanceMet = prevSpend >= card.minSpendForBenefits
-  const performanceTier = matchedPerformanceTier(card, prevSpend)
+  const inGracePeriod =
+    (card.gracePeriodMonths?.includes(month) ?? false) &&
+    prevSpend < card.minSpendForBenefits
+  const effectivePrevSpend = inGracePeriod
+    ? Math.max(prevSpend, card.minSpendForBenefits)
+    : prevSpend
+  const performanceMet = inGracePeriod || prevSpend >= card.minSpendForBenefits
+  const performanceTier = matchedPerformanceTier(card, effectivePrevSpend)
   const totalCap = performanceTier?.monthlyTotalCap ?? card.monthlyTotalCap
 
   const applicableRules = performanceMet
-    ? card.benefits.filter((rule) => prevSpend >= (rule.minSpend ?? card.minSpendForBenefits))
+    ? card.benefits.filter(
+        (rule) => effectivePrevSpend >= (rule.minSpend ?? card.minSpendForBenefits),
+      )
     : []
 
   const ruleSpend = new Map<string, number>(
@@ -195,6 +205,7 @@ export function computeCardMonth(
     prevSpend,
     spend,
     performanceMet,
+    inGracePeriod,
     toRequirement: Math.max(0, card.minSpendForBenefits - spend),
     nextTier,
     nextTierRemaining: nextTier === null ? 0 : Math.max(0, nextTier - spend),

@@ -1193,6 +1193,63 @@ select:focus {
   white-space: nowrap;
 }
 
+.card-panel__event {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid #d4e4ff;
+  border-radius: 12px;
+  background: #f4f8ff;
+}
+
+.card-panel__event.is-complete {
+  border-color: #bfead8;
+  background: #effbf5;
+}
+
+.card-panel__event .card-panel__row strong {
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 750;
+}
+
+.card-panel__event .card-panel__row strong small {
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.card-panel__event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.card-panel__event-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.card-panel__event-tag.is-met {
+  background: #ddf6eb;
+  color: #0d9b76;
+}
+
+.card-panel__event-tag.is-pending {
+  background: #fff1d6;
+  color: #b86e00;
+}
+
 .rule-list {
   display: flex;
   flex-direction: column;

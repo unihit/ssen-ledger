@@ -320,6 +320,84 @@ export const LOTTE_LOCA_365_CARD: Card = {
 }
 
 /**
+ * IBK K-패스 카드 (신용).
+ * - 전월실적: 20만원 이상 (50만원 이상 시 대중교통 회당 할인금액 상향)
+ * - 신규 발급 실적 유예: 수령월 포함 익월 말일까지 (2026-11, 2026-12) 20만원 구간 혜택 기본 제공
+ * - 신규 발급 이벤트: 2026-12-31까지 20만원 이상 결제 (간편결제 1만원 이상 1건 필수 포함)
+ */
+export const IBK_KPASS_CARD: Card = {
+  id: 'ibk-kpass-credit',
+  name: 'IBK K-패스 카드',
+  issuer: 'IBK기업은행',
+  kind: 'credit',
+  colorFrom: '#004b9b',
+  colorTo: '#0072ce',
+  minSpendForBenefits: 200_000,
+  monthlyTotalCap: 28_200,
+  gracePeriodMonths: ['2026-11', '2026-12'],
+  event: {
+    title: '신규 발급 캐시백 이벤트',
+    targetAmount: 200_000,
+    deadline: '2026-12-31',
+    requireSimplePay: true,
+    minSimplePayAmount: 10_000,
+    reward: '캐시백 지급',
+    note: '간편결제 1만원 이상 1건 필수 포함',
+  },
+  performanceTiers: [
+    { minSpend: 200_000, monthlyTotalCap: 28_200 },
+    { minSpend: 500_000, monthlyTotalCap: 28_200 },
+  ],
+  baseRate: 0,
+  baseCap: 0,
+  active: true,
+  benefits: [
+    {
+      id: 'ibk-kpass-transport',
+      categoryId: 'transport',
+      rate: 0.07,
+      monthlyCap: 10_000,
+      note: '버스·지하철 회당 100~300원 할인 (일 3회, 월 최대 10,000원) · 정부 K-패스 환급 별도',
+    },
+    {
+      id: 'ibk-kpass-travel',
+      categoryId: 'travel',
+      rate: 0.05,
+      monthlyCap: 5_000,
+      note: '코레일·고속버스·택시 5% 할인 (월 2회, 회당 최대 2,500원)',
+    },
+    {
+      id: 'ibk-kpass-fuel',
+      categoryId: 'fuel',
+      rate: 0.025,
+      monthlyCap: 10_000,
+      note: 'GS칼텍스 리터당 40원 할인 (일 1회, 월 4회, 회당 10만원 한도)',
+    },
+    {
+      id: 'ibk-kpass-telecom',
+      categoryId: 'telecom',
+      rate: 0.03,
+      monthlyCap: 1_200,
+      note: 'SKT·KT·LGU+ 이동통신 자동이체 3% 할인 (월 1회, 최대 1,200원)',
+    },
+    {
+      id: 'ibk-kpass-food',
+      categoryId: 'food',
+      rate: 0.1,
+      monthlyCap: 10_000,
+      note: '아웃백·빕스 10% 현장할인 (월 1회, 이용금액 10만원 한도)',
+    },
+    {
+      id: 'ibk-kpass-culture',
+      categoryId: 'culture',
+      rate: 0.15,
+      monthlyCap: 2_000,
+      note: 'CGV·메가박스 예매 2,000원 할인 (월 1회, 연 6회)',
+    },
+  ],
+}
+
+/**
  * 실제 보유 카드 목록.
  *
  * 혜택은 2026-10 기준 공개된 상품 안내를 바탕으로 앱의 카테고리/한도 모델에
@@ -331,6 +409,7 @@ const MY_CARDS: Card[] = [
   SHINHAN_NARA_CARD,
   KB_BONUS_CARD,
   LOTTE_LOCA_365_CARD,
+  IBK_KPASS_CARD,
   {
     id: 'kb-nara-check',
     name: 'KB국민 나라사랑체크카드',
@@ -514,11 +593,17 @@ const MY_CARDS: Card[] = [
   },
 ]
 
+export function findPredefinedCard(id: string): Card | undefined {
+  return MY_CARDS.find((card) => card.id === id)
+}
+
 export function createCards(): Card[] {
   return MY_CARDS.map((card) => ({
     ...card,
     benefits: card.benefits.map((rule) => ({ ...rule })),
     performanceTiers: card.performanceTiers?.map((tier) => ({ ...tier })) ?? [],
+    gracePeriodMonths: card.gracePeriodMonths ? [...card.gracePeriodMonths] : undefined,
+    event: card.event ? { ...card.event } : undefined,
   }))
 }
 

@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS } from '../data/cards'
+import { DEFAULT_SETTINGS, findPredefinedCard } from '../data/cards'
 import type {
   AppState,
   BenefitRule,
@@ -132,6 +132,7 @@ function paymentMethodFor(transaction: Transaction): string {
 }
 
 function toCard(row: CardRow): Card {
+  const predefined = findPredefinedCard(row.id)
   return {
     id: row.id,
     name: row.name,
@@ -147,6 +148,10 @@ function toCard(row: CardRow): Card {
     performanceTiers: Array.isArray(row.performance_tiers)
       ? (row.performance_tiers as PerformanceTier[])
       : [],
+    gracePeriodMonths: predefined?.gracePeriodMonths
+      ? [...predefined.gracePeriodMonths]
+      : undefined,
+    event: predefined?.event ? { ...predefined.event } : undefined,
     active: Boolean(row.active),
   }
 }

@@ -52,6 +52,16 @@ export interface PerformanceTier {
   monthlyTotalCap: number
 }
 
+export interface CardEvent {
+  title: string
+  targetAmount: number
+  deadline: string
+  requireSimplePay?: boolean
+  minSimplePayAmount?: number
+  reward?: string
+  note?: string
+}
+
 export interface Card {
   id: string
   name: string
@@ -65,6 +75,10 @@ export interface Card {
   monthlyTotalCap: number
   /** 전월 실적 구간별 통합 한도. 없으면 monthlyTotalCap을 모든 구간에 사용 */
   performanceTiers?: PerformanceTier[]
+  /** 신규 발급 실적 유예 적용 월 (예: ['2026-11', '2026-12']) */
+  gracePeriodMonths?: string[]
+  /** 신규 카드 발급 이벤트 추적 정보 */
+  event?: CardEvent
   /** 기본 적립률 */
   baseRate: number
   /** 기본 적립 월 한도(원) */

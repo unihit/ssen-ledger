@@ -151,6 +151,32 @@ export function CardsPage() {
           const tier = cardMonth.performanceTier
           const tierRate = tier && tier.minSpend > 0 ? tier.monthlyTotalCap / tier.minSpend : null
 
+          const cardEvent = card.event
+          const eventTransactions = cardEvent
+            ? state.transactions.filter(
+                (t) =>
+                  t.cardId === card.id &&
+                  t.date >= '2026-11-01' &&
+                  t.date <= cardEvent.deadline &&
+                  !t.excluded &&
+                  t.amount > 0,
+              )
+            : []
+          const eventTotalSpend = eventTransactions.reduce(
+            (sum, t) => sum + t.amount,
+            0,
+          )
+          const minSimplePay = cardEvent?.minSimplePayAmount ?? 10_000
+          const hasSimplePayMet = cardEvent?.requireSimplePay
+            ? eventTransactions.some(
+                (t) => t.paymentMethod === '간편결제' && t.amount >= minSimplePay,
+              )
+            : true
+          const eventAmountMet = cardEvent
+            ? eventTotalSpend >= cardEvent.targetAmount
+            : false
+          const eventAllMet = eventAmountMet && hasSimplePayMet
+
           return (
             <article
               className={`panel card-panel${card.active ? '' : ' is-inactive'}`}
@@ -176,14 +202,29 @@ export function CardsPage() {
 
               <div className="card-panel__body">
                 <div className="card-panel__status">
-                  <Badge tone={cardMonth.performanceMet ? 'success' : 'warn'}>
-                    {cardMonth.performanceMet ? '전월 실적 충족' : '전월 실적 미달'}
+                  <Badge
+                    tone={
+                      cardMonth.inGracePeriod
+                        ? 'accent'
+                        : cardMonth.performanceMet
+                          ? 'success'
+                          : 'warn'
+                    }
+                  >
+                    {cardMonth.inGracePeriod
+                      ? '실적 유예 중 (11~12월)'
+                      : cardMonth.performanceMet
+                        ? '전월 실적 충족'
+                        : '전월 실적 미달'}
                   </Badge>
                   <span>
-                    전월 {won(cardMonth.prevSpend)}
-                    {cardMonth.performanceTier
-                      ? ` · ${won(cardMonth.performanceTier.minSpend)} 이상 구간`
-                      : ''}
+                    {cardMonth.inGracePeriod
+                      ? `전월 ${won(cardMonth.prevSpend)} · 유예로 ${won(card.minSpendForBenefits)} 구간 적용`
+                      : `전월 ${won(cardMonth.prevSpend)}${
+                          cardMonth.performanceTier
+                            ? ` · ${won(cardMonth.performanceTier.minSpend)} 이상 구간`
+                            : ''
+                        }`}
                   </span>
                 </div>
 
@@ -210,6 +251,46 @@ export function CardsPage() {
                     이 구간 통합 한도 {won(tier.monthlyTotalCap)} ·{' '}
                     <strong>구간 기준 {ratePercent(tierRate)}</strong>
                   </p>
+                )}
+
+                {cardEvent && (
+                  <div
+                    className={`card-panel__event${eventAllMet ? ' is-complete' : ''}`}
+                  >
+                    <div className="card-panel__row">
+                      <strong>
+                        🎁 {cardEvent.title}{' '}
+                        <small>(~{cardEvent.deadline.slice(5).replace('-', '/')}까지)</small>
+                      </strong>
+                      <span>
+                        {won(eventTotalSpend)} / {won(cardEvent.targetAmount)}
+                      </span>
+                    </div>
+                    <Progress
+                      value={eventTotalSpend}
+                      max={cardEvent.targetAmount || 1}
+                      tone={eventAllMet ? 'success' : 'accent'}
+                      thin
+                    />
+                    <div className="card-panel__event-meta">
+                      <span>
+                        {eventAmountMet
+                          ? `🎉 금액 조건 달성 (${cardEvent.reward ?? '혜택 예정'})`
+                          : `남은 금액: ${won(Math.max(0, cardEvent.targetAmount - eventTotalSpend))}`}
+                      </span>
+                      {cardEvent.requireSimplePay && (
+                        <span
+                          className={`card-panel__event-tag${
+                            hasSimplePayMet ? ' is-met' : ' is-pending'
+                          }`}
+                        >
+                          {hasSimplePayMet
+                            ? `✅ 간편결제 ${wonShort(minSimplePay)} 이상 충족`
+                            : `⚠️ 간편결제 ${wonShort(minSimplePay)} 이상 1건 필요`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 )}
 
                 <div className="card-panel__block">

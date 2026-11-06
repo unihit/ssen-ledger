@@ -152,6 +152,8 @@ export function ReportPage() {
                     <td>
                       {card.minSpendForBenefits === 0 ? (
                         <span className="table__muted">조건 없음</span>
+                      ) : summary.inGracePeriod ? (
+                        <span className="table__accent">유예 중</span>
                       ) : summary.performanceMet ? (
                         <span className="table__good">충족</span>
                       ) : (
