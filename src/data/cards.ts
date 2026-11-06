@@ -364,7 +364,7 @@ export const IBK_KPASS_CARD: Card = {
       categoryId: 'travel',
       rate: 0.05,
       monthlyCap: 5_000,
-      note: '코레일·고속버스·택시 5% 할인 (월 2회, 회당 최대 2,500원)',
+      note: '코레일·고속버스·택시 5% 할인 (월 2회, 회당 최대 2,500원 · 택시 앱 자동결제 제외, 현장결제만 가능)',
     },
     {
       id: 'ibk-kpass-fuel',
