@@ -113,14 +113,16 @@ export default function App() {
         </Suspense>
       </main>
 
-      <button
-        type="button"
-        className="fab"
-        onClick={openAdd}
-        aria-label="결제 추가"
-      >
-        <Icon name="plus" size={26} />
-      </button>
+      {(tab === 'home' || tab === 'ledger') && (
+        <button
+          type="button"
+          className="fab"
+          onClick={openAdd}
+          aria-label="결제 추가"
+        >
+          <Icon name="plus" size={26} />
+        </button>
+      )}
 
       {nav(true)}
 

@@ -1,6 +1,6 @@
 import { categoryOf } from '../data/categories'
 import type { CategorySlice } from '../lib/analytics'
-import { won, wonShort } from '../lib/format'
+import { manwon, won, wonShort } from '../lib/format'
 
 export function Donut({
   slices,
@@ -74,7 +74,7 @@ export function TrendChart({
         const active = item.month === activeMonth
         return (
           <div className={`trend__item${active ? ' is-active' : ''}`} key={item.month}>
-            <span className="trend__value">{wonShort(item.value)}</span>
+            <span className="trend__value">{manwon(item.value)}</span>
             <div className="trend__track">
               <div className="trend__bar" style={{ height: `${height}%` }} />
             </div>
