@@ -256,46 +256,53 @@ export function HomePage({
           <header className="panel__head">
             <div>
               <h2>저축 목표</h2>
-              <p>현금 저축 + 고정·기록 저축 기준</p>
+              <p>실제 저축(적금·IRP 등) 반영 기준</p>
             </div>
-            <Badge tone={savings >= goal ? 'success' : 'neutral'}>
-              {savings >= goal ? '목표 달성' : `목표 ${wonShort(goal)}`}
+            <Badge tone={goal > 0 && totalSavingsApplied >= goal ? 'success' : 'neutral'}>
+              {goal > 0
+                ? totalSavingsApplied >= goal
+                  ? '목표 달성'
+                  : `${Math.round((totalSavingsApplied / goal) * 100)}% (${wonShort(totalSavingsApplied)} / ${wonShort(goal)})`
+                : '목표 없음'}
             </Badge>
           </header>
           <div className="goal">
             <div className="goal__row">
-              <span>이번 달 저축 가능액</span>
-              <strong>{won(savings)}</strong>
+              <span>이번 달 실제 저축액</span>
+              <strong>{won(totalSavingsApplied)}</strong>
             </div>
-            <div className="goal__row goal__row--sub">
-              <span>현금 저축</span>
-              <strong className={cashSavings < 0 ? 'is-negative' : ''}>
-                {won(cashSavings)}
-              </strong>
-            </div>
-            <div className="goal__row goal__row--sub">
-              <span>고정 저축 (IRP 등)</span>
-              <strong>{won(fixedSavingsApplied)}</strong>
-            </div>
+            {fixedSavingsApplied > 0 && (
+              <div className="goal__row goal__row--sub">
+                <span>고정 저축 (IRP·적금 등)</span>
+                <strong>{won(fixedSavingsApplied)}</strong>
+              </div>
+            )}
             {manualSavings > 0 && (
               <div className="goal__row goal__row--sub">
-                <span>저축 기록</span>
+                <span>직접 입력 저축</span>
                 <strong>{won(manualSavings)}</strong>
               </div>
             )}
+            <div className="goal__row goal__row--sub">
+              <span>저축 가능 여력 (수입−지출)</span>
+              <strong className={savings < 0 ? 'is-negative' : ''}>
+                {won(savings)}
+              </strong>
+            </div>
             <Progress
-              value={Math.max(0, savings)}
+              value={totalSavingsApplied}
               max={Math.max(1, goal)}
-              tone={savings >= goal ? 'success' : 'accent'}
+              tone={goal > 0 && totalSavingsApplied >= goal ? 'success' : 'accent'}
             />
             <p className="goal__hint">
-              수입 {won(state.settings.monthlyIncome)} · 지출 {won(summary.spend)}
-              {fixedSavingsPlanned > 0 || manualSavings > 0
-                ? ` · 저축 반영 ${won(totalSavingsApplied)}`
-                : ''}
-              {savings < goal
-                ? ` · 목표까지 ${won(Math.max(0, goal - savings))} 남았어요`
-                : ' · 이번 달 목표를 채웠어요 🎉'}
+              {goal > 0
+                ? totalSavingsApplied >= goal
+                  ? '이번 달 저축 목표를 달성했어요! 🎉'
+                  : `목표(${won(goal)})까지 ${won(Math.max(0, goal - totalSavingsApplied))} 남았어요`
+                : '설정에서 저축 목표를 입력해 보세요'}
+              {savings > totalSavingsApplied && (
+                <span> · 저축 가능 여력 {won(savings - totalSavingsApplied)}</span>
+              )}
             </p>
           </div>
         </section>
