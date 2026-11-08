@@ -29,6 +29,7 @@ async function deployedEntry(): Promise<string | null> {
  */
 export function UpdateBanner() {
   const [available, setAvailable] = useState(false)
+  const [dismissed, setDismissed] = useState(false)
   const availableRef = useRef(false)
   const inFlight = useRef(false)
   const lastCheckedAt = useRef(0)
@@ -72,21 +73,47 @@ export function UpdateBanner() {
     }
   }, [check])
 
-  if (!available) return null
+  if (!available || dismissed) return null
 
   return (
     <div className="update-banner" role="status">
-      <span>새 버전이 나왔어요.</span>
-      <button
-        type="button"
-        onClick={() => {
-          const url = new URL(import.meta.env.BASE_URL, window.location.origin)
-          url.searchParams.set('v', String(Date.now()))
-          window.location.replace(url.toString())
-        }}
-      >
-        새로고침
-      </button>
+      <div className="update-banner__content">
+        <span className="update-banner__dot" aria-hidden="true" />
+        <span className="update-banner__text">새 버전이 나왔어요</span>
+      </div>
+      <div className="update-banner__actions">
+        <button
+          type="button"
+          className="update-banner__reload"
+          onClick={() => {
+            const url = new URL(import.meta.env.BASE_URL, window.location.origin)
+            url.searchParams.set('v', String(Date.now()))
+            window.location.replace(url.toString())
+          }}
+        >
+          새로고침
+        </button>
+        <button
+          type="button"
+          className="update-banner__dismiss"
+          onClick={() => setDismissed(true)}
+          aria-label="안내 닫기"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
     </div>
   )
 }
