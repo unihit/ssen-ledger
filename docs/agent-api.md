@@ -557,7 +557,99 @@ curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses
 `ledger_history`에 기록된 고정지출 템플릿 생성·수정·숨김 이력을 최신순으로 반환합니다.
 
 
-## 7. 메타/분류
+## 7. 예산 (Budget)
+
+가계부의 월 지출 예산, 월 수입, 저축 목표, 카테고리별 예산을 조회하고 수정합니다.
+
+### 7-1. 조회
+
+```bash
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/budget" \
+  -H "Authorization: Bearer $AGENT_API_KEY"
+```
+
+**응답 예시**:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "monthlyBudget": 1600000,
+    "monthlyIncome": 3400000,
+    "monthlyGoal": 1500000,
+    "totalCategoryBudget": 1600000,
+    "categoryBudgets": {
+      "food": 150000,
+      "cafe": 60000,
+      "mart": 120000,
+      "delivery": 80000,
+      "shopping": 150000,
+      "simplepay": 100000,
+      "transport": 160000,
+      "fuel": 70000,
+      "telecom": 60000,
+      "subscription": 50000,
+      "travel": 90000,
+      "culture": 65000,
+      "game": 50000,
+      "medical": 150000,
+      "insurance": 60000,
+      "living": 80000,
+      "education": 45000,
+      "etc": 110000
+    },
+    "categories": [
+      { "id": "food", "label": "식비", "emoji": "🍚", "budget": 150000 },
+      { "id": "cafe", "label": "카페·간식", "emoji": "☕", "budget": 60000 },
+      ...
+    ]
+  }
+}
+```
+
+### 7-2. 부분 수정 (PATCH)
+
+원하는 필드나 특정 카테고리 예산만 지정하여 갱신합니다. 지정되지 않은 기존 예산 값은 유지됩니다.
+
+```bash
+curl -X PATCH "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/budget" \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "monthlyBudget": 1800000,
+    "categoryBudgets": {
+      "식비": 200000,
+      "카페": 50000
+    }
+  }'
+```
+
+* **한글 라벨 지원**: `categoryBudgets` 객체에 영문 ID(`food`)뿐 아니라 한글 이름(`식비`, `카페·간식`, `마트`, `배달`, `교통`, `주유`, `통신` 등)을 그대로 전달할 수 있습니다. 서버에서 자동으로 표준 카테고리 ID로 정규화합니다.
+* **필드 별칭 지원**: `monthlyBudget` 대신 `budget`, `monthlyIncome` 대신 `income`, `monthlyGoal` 대신 `goal`을 사용할 수 있습니다.
+
+### 7-3. 일괄 교체 (PUT)
+
+전체 예산 설정을 교체합니다. 지정되지 않은 카테고리는 0으로 초기화됩니다.
+
+```bash
+curl -X PUT "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/budget" \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "monthlyBudget": 1600000,
+    "monthlyIncome": 3400000,
+    "monthlyGoal": 1500000,
+    "categoryBudgets": {
+      "food": 150000,
+      "cafe": 60000,
+      "mart": 120000,
+      ...
+    }
+  }'
+```
+
+
+## 8. 메타/분류
 
 ```bash
 curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/meta" \
@@ -566,7 +658,7 @@ curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/meta" \
 
 거래유형, 결제수단, 보유 카드 목록, 잔액 B~G 매핑, 45개 분류기준, 사용 가능한 엔드포인트를 반환합니다.
 
-## 7-1. 시트 거래 이관
+## 8-1. 시트 거래 이관
 
 실제 거래 데이터가 담긴 JSON·스크립트는 저장소에 커밋하지 마세요. 로컬의 비공개 파일로 API에 입력하고, 이관 후에는 `.private/`처럼 Git에서 제외된 경로에 보관하거나 삭제합니다.
 
@@ -578,7 +670,7 @@ $env:AGENT_API_KEY = "<AGENT_API_KEY>"
 
 같은 고정 UUID로 다시 보내면 이미 입력된 건은 `409`로 건너뜁니다. 이관 후 `aggregates/monthly` 응답이 시트의 해당 월 합계와 일치하는지 확인합니다.
 
-## 8. 검증 규칙
+## 9. 검증 규칙
 
 - `date`: `YYYY-MM-DD`이고 실제 존재하는 날짜
 - `amount`: 0 이상 정수 (환불 행은 `amount: 0`, `correction: 음수`)
@@ -592,7 +684,7 @@ $env:AGENT_API_KEY = "<AGENT_API_KEY>"
 - `id`: UUID (생략 시 서버 생성)
 - `cardId`/`cardName`: 해당 가구의 카드 ID 또는 카드 이름. 이름은 공백·기호를 무시하고 비교하며, 여러 카드와 겹치면 거부
 
-## 9. 보안
+## 10. 보안
 
 - `AGENT_API_KEY`는 길고 무작위한 값 1개만 사용합니다.
 - 키는 Muse의 서버 측 Secret에 저장하고, 브라우저/공개 저장소에 넣지 않습니다.
@@ -601,7 +693,7 @@ $env:AGENT_API_KEY = "<AGENT_API_KEY>"
 - RLS는 기존 앱 사용자에게 그대로 적용되고, API는 service role로 동작합니다.
 - API 키가 유출되면 Supabase Secret에서 `AGENT_API_KEY`를 교체하고 재배포합니다.
 
-## 10. 참고: 앱과의 관계
+## 11. 참고: 앱과의 관계
 
 앱은 기존처럼 `생활비` 거래만 표시합니다. API에는 수입/투자/대출/계좌이체까지 저장되지만, 앱 화면은 카드 혜택 계산에 필요한 생활비 중심으로 유지됩니다.
 
@@ -611,7 +703,7 @@ $env:AGENT_API_KEY = "<AGENT_API_KEY>"
 
 Google Sheet의 현재 데이터를 API로 옮길 때는 실제 거래 데이터를 로컬의 비공개 파일로 준비해 사용합니다. 시트의 `분류기준`은 이미 `ledger_categories`에 시드되어 있습니다. 거래 데이터가 담긴 파일은 저장소에 커밋하지 마세요.
 
-## 11. Muse 카드 연결 규칙
+## 12. Muse 카드 연결 규칙
 
 - 사용자가 `MG+S 하나카드`, `꿀카드`처럼 카드 이름을 말하면 `GET /v1/cards`로 목록을 확인하고, 거래의 `cardName`에 카드 이름을 넣습니다. `cardId`나 `paymentMethod`에 이름을 넣어도 서버가 변환합니다.
 - 카드 이름이 없으면 `cardId`/`cardName`을 비우고 `paymentMethod`만 보냅니다.

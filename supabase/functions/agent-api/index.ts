@@ -102,9 +102,140 @@ const SHEET_TO_APP_CATEGORY: Record<string, string> = {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const CORS_HEADERS: Record<string, string> = {
   'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+  'access-control-allow-methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS',
   'access-control-allow-headers': 'authorization, content-type',
   'access-control-max-age': '86400',
+}
+
+const APP_SPENDING_CATEGORIES = [
+  { id: 'food', label: '식비', emoji: '🍚' },
+  { id: 'cafe', label: '카페·간식', emoji: '☕' },
+  { id: 'mart', label: '마트·편의점', emoji: '🛒' },
+  { id: 'delivery', label: '배달', emoji: '🛵' },
+  { id: 'shopping', label: '쇼핑', emoji: '🛍️' },
+  { id: 'giftcard', label: '상품권', emoji: '🎁' },
+  { id: 'simplepay', label: '간편결제', emoji: '💳' },
+  { id: 'transport', label: '대중교통', emoji: '🚇' },
+  { id: 'fuel', label: '주유·차량', emoji: '⛽' },
+  { id: 'telecom', label: '통신', emoji: '📱' },
+  { id: 'subscription', label: '구독', emoji: '🎬' },
+  { id: 'travel', label: '여행·숙박', emoji: '✈️' },
+  { id: 'culture', label: '문화·여가', emoji: '🎨' },
+  { id: 'game', label: '게임', emoji: '🎮' },
+  { id: 'medical', label: '의료·건강', emoji: '💊' },
+  { id: 'insurance', label: '보험', emoji: '🛡️' },
+  { id: 'living', label: '생활·생필품', emoji: '🧺' },
+  { id: 'education', label: '교육', emoji: '📚' },
+  { id: 'etc', label: '기타', emoji: '📦' },
+] as const
+
+const DEFAULT_SETTINGS = {
+  monthlyIncome: 3_400_000,
+  monthlyBudget: 1_600_000,
+  monthlyGoal: 1_500_000,
+  categoryBudgets: {
+    food: 150_000,
+    cafe: 60_000,
+    mart: 120_000,
+    delivery: 80_000,
+    shopping: 150_000,
+    simplepay: 100_000,
+    transport: 160_000,
+    fuel: 70_000,
+    telecom: 60_000,
+    subscription: 50_000,
+    travel: 90_000,
+    culture: 65_000,
+    game: 50_000,
+    medical: 150_000,
+    insurance: 60_000,
+    living: 80_000,
+    education: 45_000,
+    etc: 110_000,
+  },
+}
+
+const CATEGORY_LABEL_ALIASES: Record<string, string> = {
+  food: 'food',
+  식비: 'food',
+  외식: 'food',
+  식사: 'food',
+  cafe: 'cafe',
+  카페: 'cafe',
+  간식: 'cafe',
+  '카페·간식': 'cafe',
+  '카페/간식': 'cafe',
+  mart: 'mart',
+  마트: 'mart',
+  편의점: 'mart',
+  '마트·편의점': 'mart',
+  '마트/편의점': 'mart',
+  delivery: 'delivery',
+  배달: 'delivery',
+  shopping: 'shopping',
+  쇼핑: 'shopping',
+  '의복/미용': 'shopping',
+  giftcard: 'giftcard',
+  상품권: 'giftcard',
+  simplepay: 'simplepay',
+  간편결제: 'simplepay',
+  페이: 'simplepay',
+  transport: 'transport',
+  교통: 'transport',
+  대중교통: 'transport',
+  fuel: 'fuel',
+  주유: 'fuel',
+  차량: 'fuel',
+  자동차: 'fuel',
+  '주유·차량': 'fuel',
+  '주유/차량': 'fuel',
+  telecom: 'telecom',
+  통신: 'telecom',
+  통신비: 'telecom',
+  subscription: 'subscription',
+  구독: 'subscription',
+  OTT: 'subscription',
+  travel: 'travel',
+  여행: 'travel',
+  숙박: 'travel',
+  '여행·숙박': 'travel',
+  '여행/숙박': 'travel',
+  culture: 'culture',
+  문화: 'culture',
+  여가: 'culture',
+  '문화·여가': 'culture',
+  '문화/여가': 'culture',
+  game: 'game',
+  게임: 'game',
+  medical: 'medical',
+  의료: 'medical',
+  건강: 'medical',
+  병원: 'medical',
+  약국: 'medical',
+  '의료·건강': 'medical',
+  '의료/건강': 'medical',
+  insurance: 'insurance',
+  보험: 'insurance',
+  보험료: 'insurance',
+  living: 'living',
+  생활: 'living',
+  생필품: 'living',
+  '생활·생필품': 'living',
+  '생활/생필품': 'living',
+  education: 'education',
+  교육: 'education',
+  학원: 'education',
+  etc: 'etc',
+  기타: 'etc',
+}
+
+function normalizeCategoryKey(key: string): string | null {
+  const trimmed = key.trim()
+  return (
+    CATEGORY_LABEL_ALIASES[trimmed] ??
+    CATEGORY_LABEL_ALIASES[trimmed.toLowerCase()] ??
+    null
+  )
 }
 
 class ApiError extends Error {
@@ -2368,6 +2499,229 @@ async function applyFixedExpense(
   )
 }
 
+async function getHouseholdSettings(householdId: string): Promise<{
+  rawSettings: Record<string, unknown>
+  settings: {
+    monthlyBudget: number
+    monthlyIncome: number
+    monthlyGoal: number
+    categoryBudgets: Record<string, number>
+  }
+}> {
+  const { data, error } = await db()
+    .from('households')
+    .select('settings')
+    .eq('id', householdId)
+    .single()
+
+  if (error) throw dbError(error)
+
+  const rawSettings =
+    data?.settings && typeof data.settings === 'object' && !Array.isArray(data.settings)
+      ? (data.settings as Record<string, unknown>)
+      : {}
+
+  const rawCategoryBudgets =
+    rawSettings.categoryBudgets &&
+    typeof rawSettings.categoryBudgets === 'object' &&
+    !Array.isArray(rawSettings.categoryBudgets)
+      ? (rawSettings.categoryBudgets as Record<string, unknown>)
+      : {}
+
+  const categoryBudgets: Record<string, number> = {}
+  for (const cat of APP_SPENDING_CATEGORIES) {
+    const val = rawCategoryBudgets[cat.id]
+    categoryBudgets[cat.id] =
+      typeof val === 'number' && Number.isFinite(val) && val >= 0
+        ? Math.round(val)
+        : (DEFAULT_SETTINGS.categoryBudgets[
+            cat.id as keyof typeof DEFAULT_SETTINGS.categoryBudgets
+          ] ?? 0)
+  }
+
+  const settings = {
+    monthlyBudget:
+      typeof rawSettings.monthlyBudget === 'number' &&
+      Number.isFinite(rawSettings.monthlyBudget) &&
+      rawSettings.monthlyBudget >= 0
+        ? Math.round(rawSettings.monthlyBudget)
+        : DEFAULT_SETTINGS.monthlyBudget,
+    monthlyIncome:
+      typeof rawSettings.monthlyIncome === 'number' &&
+      Number.isFinite(rawSettings.monthlyIncome) &&
+      rawSettings.monthlyIncome >= 0
+        ? Math.round(rawSettings.monthlyIncome)
+        : DEFAULT_SETTINGS.monthlyIncome,
+    monthlyGoal:
+      typeof rawSettings.monthlyGoal === 'number' &&
+      Number.isFinite(rawSettings.monthlyGoal) &&
+      rawSettings.monthlyGoal >= 0
+        ? Math.round(rawSettings.monthlyGoal)
+        : DEFAULT_SETTINGS.monthlyGoal,
+    categoryBudgets,
+  }
+
+  return { rawSettings, settings }
+}
+
+function budgetDataResponse(settings: {
+  monthlyBudget: number
+  monthlyIncome: number
+  monthlyGoal: number
+  categoryBudgets: Record<string, number>
+}) {
+  const totalCategoryBudget = Object.values(settings.categoryBudgets).reduce(
+    (sum, v) => sum + (Number(v) || 0),
+    0,
+  )
+
+  return {
+    monthlyBudget: settings.monthlyBudget,
+    monthlyIncome: settings.monthlyIncome,
+    monthlyGoal: settings.monthlyGoal,
+    totalCategoryBudget,
+    categoryBudgets: settings.categoryBudgets,
+    categories: APP_SPENDING_CATEGORIES.map((cat) => ({
+      id: cat.id,
+      label: cat.label,
+      emoji: cat.emoji,
+      budget: settings.categoryBudgets[cat.id] ?? 0,
+    })),
+  }
+}
+
+async function getBudget(householdId: string) {
+  const { settings } = await getHouseholdSettings(householdId)
+  return dataResponse(budgetDataResponse(settings))
+}
+
+async function updateBudget(
+  req: Request,
+  householdId: string,
+  mode: 'patch' | 'put',
+) {
+  const body = await readBody(req)
+  const { rawSettings, settings: current } = await getHouseholdSettings(householdId)
+  const fields: Record<string, string> = {}
+
+  let monthlyBudget = current.monthlyBudget
+  let monthlyIncome = current.monthlyIncome
+  let monthlyGoal = current.monthlyGoal
+  let nextCategoryBudgets =
+    mode === 'put' ? {} : { ...current.categoryBudgets }
+
+  // monthlyBudget 검증
+  const budgetVal = body.monthlyBudget !== undefined ? body.monthlyBudget : body.budget
+  if (budgetVal !== undefined) {
+    if (typeof budgetVal !== 'number' || !Number.isFinite(budgetVal) || budgetVal < 0) {
+      fields.monthlyBudget = '0 이상의 숫자여야 합니다.'
+    } else {
+      monthlyBudget = Math.round(budgetVal)
+    }
+  } else if (mode === 'put') {
+    monthlyBudget = DEFAULT_SETTINGS.monthlyBudget
+  }
+
+  // monthlyIncome 검증
+  const incomeVal = body.monthlyIncome !== undefined ? body.monthlyIncome : body.income
+  if (incomeVal !== undefined) {
+    if (typeof incomeVal !== 'number' || !Number.isFinite(incomeVal) || incomeVal < 0) {
+      fields.monthlyIncome = '0 이상의 숫자여야 합니다.'
+    } else {
+      monthlyIncome = Math.round(incomeVal)
+    }
+  } else if (mode === 'put') {
+    monthlyIncome = DEFAULT_SETTINGS.monthlyIncome
+  }
+
+  // monthlyGoal 검증
+  const goalVal =
+    body.monthlyGoal !== undefined
+      ? body.monthlyGoal
+      : body.goal !== undefined
+        ? body.goal
+        : body.savingsGoal
+  if (goalVal !== undefined) {
+    if (typeof goalVal !== 'number' || !Number.isFinite(goalVal) || goalVal < 0) {
+      fields.monthlyGoal = '0 이상의 숫자여야 합니다.'
+    } else {
+      monthlyGoal = Math.round(goalVal)
+    }
+  } else if (mode === 'put') {
+    monthlyGoal = DEFAULT_SETTINGS.monthlyGoal
+  }
+
+  // categoryBudgets 검증 및 정규화
+  const catBudgetsInput =
+    body.categoryBudgets !== undefined ? body.categoryBudgets : body.categories
+  if (catBudgetsInput !== undefined) {
+    if (
+      !catBudgetsInput ||
+      typeof catBudgetsInput !== 'object' ||
+      Array.isArray(catBudgetsInput)
+    ) {
+      fields.categoryBudgets =
+        '객체 형식이어야 합니다. 예: { "food": 150000, "식비": 150000 }'
+    } else {
+      for (const [rawKey, rawAmount] of Object.entries(
+        catBudgetsInput as Record<string, unknown>,
+      )) {
+        const normalizedId = normalizeCategoryKey(rawKey)
+        if (!normalizedId) {
+          fields[`categoryBudgets.${rawKey}`] = `지원하지 않는 카테고리입니다: '${rawKey}'`
+          continue
+        }
+        if (
+          typeof rawAmount !== 'number' ||
+          !Number.isFinite(rawAmount) ||
+          rawAmount < 0
+        ) {
+          fields[`categoryBudgets.${rawKey}`] = '0 이상의 숫자여야 합니다.'
+          continue
+        }
+        nextCategoryBudgets[normalizedId] = Math.round(rawAmount)
+      }
+    }
+  }
+
+  // mode === 'put' 일 때 전달되지 않은 카테고리는 0 처리
+  if (mode === 'put') {
+    for (const cat of APP_SPENDING_CATEGORIES) {
+      if (nextCategoryBudgets[cat.id] === undefined) {
+        nextCategoryBudgets[cat.id] = 0
+      }
+    }
+  }
+
+  if (Object.keys(fields).length > 0) {
+    throw new ApiError(400, 'VALIDATION_ERROR', '입력값을 확인해 주세요.', fields)
+  }
+
+  const nextSettings = {
+    ...rawSettings,
+    monthlyIncome,
+    monthlyBudget,
+    monthlyGoal,
+    categoryBudgets: nextCategoryBudgets,
+  }
+
+  const { error } = await db()
+    .from('households')
+    .update({ settings: nextSettings })
+    .eq('id', householdId)
+
+  if (error) throw dbError(error)
+
+  return dataResponse(
+    budgetDataResponse({
+      monthlyIncome,
+      monthlyBudget,
+      monthlyGoal,
+      categoryBudgets: nextCategoryBudgets,
+    }),
+  )
+}
+
 async function meta(householdId: string) {
   const { data, error } = await db()
     .from('ledger_categories')
@@ -2401,6 +2755,7 @@ async function meta(householdId: string) {
     endpoints: {
       health: 'GET /v1/health',
       meta: 'GET /v1/meta',
+      budget: 'GET/PATCH/PUT /v1/budget',
       cards: 'GET /v1/cards',
       transactions: 'GET/POST /v1/transactions',
       transaction: 'GET/PATCH/DELETE /v1/transactions/:id',
@@ -2450,6 +2805,12 @@ async function handle(req: Request): Promise<Response> {
 
   if (path === '/v1/meta' && method === 'GET') {
     return dataResponse(await meta(householdId))
+  }
+
+  if (path === '/v1/budget' || path === '/v1/settings') {
+    if (method === 'GET') return getBudget(householdId)
+    if (method === 'PATCH') return updateBudget(req, householdId, 'patch')
+    if (method === 'PUT') return updateBudget(req, householdId, 'put')
   }
 
   if (path === '/v1/cards' && method === 'GET') {
