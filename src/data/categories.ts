@@ -32,6 +32,18 @@ export const SPENDING_CATEGORIES = CATEGORIES.filter(
   (category) => category.id !== 'savings',
 )
 
+/** 예산 설정에서 제외할 카테고리 (결제수단·환금성·차량 등) */
+export const BUDGET_EXCLUDED_CATEGORIES = new Set<CategoryId>([
+  'fuel',
+  'simplepay',
+  'giftcard',
+])
+
+/** 예산 설정 대상 카테고리 */
+export const BUDGET_CATEGORIES = SPENDING_CATEGORIES.filter(
+  (category) => !BUDGET_EXCLUDED_CATEGORIES.has(category.id),
+)
+
 export function isSavingsCategory(
   categoryId: CategoryId | string | null | undefined,
 ): boolean {

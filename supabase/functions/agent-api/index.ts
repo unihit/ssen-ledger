@@ -113,10 +113,7 @@ const APP_SPENDING_CATEGORIES = [
   { id: 'mart', label: '마트·편의점', emoji: '🛒' },
   { id: 'delivery', label: '배달', emoji: '🛵' },
   { id: 'shopping', label: '쇼핑', emoji: '🛍️' },
-  { id: 'giftcard', label: '상품권', emoji: '🎁' },
-  { id: 'simplepay', label: '간편결제', emoji: '💳' },
   { id: 'transport', label: '대중교통', emoji: '🚇' },
-  { id: 'fuel', label: '주유·차량', emoji: '⛽' },
   { id: 'telecom', label: '통신', emoji: '📱' },
   { id: 'subscription', label: '구독', emoji: '🎬' },
   { id: 'travel', label: '여행·숙박', emoji: '✈️' },
@@ -143,9 +140,7 @@ const DEFAULT_SETTINGS = {
     mart: 120_000,
     delivery: 80_000,
     shopping: 150_000,
-    simplepay: 100_000,
     transport: 160_000,
-    fuel: 70_000,
     telecom: 60_000,
     subscription: 50_000,
     travel: 90_000,
@@ -265,11 +260,12 @@ const CATEGORY_LABEL_ALIASES: Record<string, string> = {
 
 function normalizeCategoryKey(key: string): string | null {
   const trimmed = key.trim()
-  return (
+  const matched =
     CATEGORY_LABEL_ALIASES[trimmed] ??
     CATEGORY_LABEL_ALIASES[trimmed.toLowerCase()] ??
     null
-  )
+  if (!matched) return null
+  return APP_SPENDING_CATEGORIES.some((c) => c.id === matched) ? matched : null
 }
 
 class ApiError extends Error {

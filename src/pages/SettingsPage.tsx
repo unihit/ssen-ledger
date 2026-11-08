@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { FixedExpenseEditModal } from '../components/FixedExpenseEditModal'
 import { Icon } from '../components/Icon'
 import { Badge, EmptyState } from '../components/ui'
-import { SPENDING_CATEGORIES, categoryOf } from '../data/categories'
+import { BUDGET_CATEGORIES, categoryOf } from '../data/categories'
 import { downloadText, transactionsToCSV } from '../lib/backup'
 import {
   fixedExpenseDayLabel,
@@ -40,7 +40,7 @@ export function SettingsPage() {
   const [goal, setGoal] = useState(String(state.settings.monthlyGoal))
   const [categoryBudgets, setCategoryBudgets] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {}
-    for (const category of SPENDING_CATEGORIES) {
+    for (const category of BUDGET_CATEGORIES) {
       initial[category.id] = String(state.settings.categoryBudgets[category.id] ?? 0)
     }
     return initial
@@ -54,7 +54,7 @@ export function SettingsPage() {
     setBudget(String(state.settings.monthlyBudget))
     setGoal(String(state.settings.monthlyGoal))
     const next: Record<string, string> = {}
-    for (const category of SPENDING_CATEGORIES) {
+    for (const category of BUDGET_CATEGORIES) {
       next[category.id] = String(state.settings.categoryBudgets[category.id] ?? 0)
     }
     setCategoryBudgets(next)
@@ -68,7 +68,7 @@ export function SettingsPage() {
 
   const handleSave = () => {
     const budgets: Record<string, number> = {}
-    for (const category of SPENDING_CATEGORIES) {
+    for (const category of BUDGET_CATEGORIES) {
       budgets[category.id] = toNumber(categoryBudgets[category.id] ?? '0')
     }
     updateSettings({
@@ -204,7 +204,7 @@ export function SettingsPage() {
             <div className="field">
               <label>카테고리별 예산</label>
               <div className="budget-inputs">
-                {SPENDING_CATEGORIES.map((category) => (
+                {BUDGET_CATEGORIES.map((category) => (
                   <label className="budget-input" key={category.id}>
                     <span>
                       {category.emoji} {category.label}
