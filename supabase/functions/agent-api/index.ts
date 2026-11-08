@@ -2755,7 +2755,7 @@ async function meta(householdId: string) {
     endpoints: {
       health: 'GET /v1/health',
       meta: 'GET /v1/meta',
-      budget: 'GET/PATCH/PUT /v1/budget',
+      budget: 'GET/PATCH/PUT /v1/budget (also supports /v1/budgets)',
       cards: 'GET /v1/cards',
       transactions: 'GET/POST /v1/transactions',
       transaction: 'GET/PATCH/DELETE /v1/transactions/:id',
@@ -2807,7 +2807,11 @@ async function handle(req: Request): Promise<Response> {
     return dataResponse(await meta(householdId))
   }
 
-  if (path === '/v1/budget' || path === '/v1/settings') {
+  if (
+    path === '/v1/budget' ||
+    path === '/v1/budgets' ||
+    path === '/v1/settings'
+  ) {
     if (method === 'GET') return getBudget(householdId)
     if (method === 'PATCH') return updateBudget(req, householdId, 'patch')
     if (method === 'PUT') return updateBudget(req, householdId, 'put')
