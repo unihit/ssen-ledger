@@ -4,7 +4,7 @@ import { Badge, EmptyState, MonthPicker } from '../components/ui'
 import { CATEGORIES, categoryOf, isSavingsCategory } from '../data/categories'
 import { isExcludedFromSpend } from '../lib/analytics'
 import { benefitRuleForTransaction } from '../lib/benefits'
-import { formatDateKo, formatDateShort, todayISO } from '../lib/date'
+import { formatDateKo, formatDateShort, todayISO, weekdayOf } from '../lib/date'
 import {
   fixedExpenseCandidates,
   fixedExpenseDayLabel,
@@ -185,16 +185,62 @@ export function LedgerPage({
     .filter((item) => isSavingsFixedExpense(item.fixedExpense))
     .reduce((sum, item) => sum + item.fixedExpense.amount, 0)
 
+  const monthTransactions = useMemo(
+    () =>
+      state.transactions.filter((transaction) =>
+        transaction.date.startsWith(month),
+      ),
+    [state.transactions, month],
+  )
+
+  const spendTypeCounts = useMemo(() => {
+    let actual = 0
+    let excluded = 0
+    let savingsCount = 0
+    for (const tx of monthTransactions) {
+      if (isSavingsCategory(tx.categoryId)) {
+        savingsCount += 1
+      } else if (isExcludedFromSpend(tx)) {
+        excluded += 1
+      } else {
+        actual += 1
+      }
+    }
+    return {
+      all: monthTransactions.length,
+      actual,
+      excluded,
+      savings: savingsCount,
+    }
+  }, [monthTransactions])
+
+  const hasActiveFilter =
+    spendTypeFilter !== 'all' ||
+    categoryFilter !== 'all' ||
+    cardFilter !== 'all' ||
+    query.trim() !== ''
+
+  const resetFilters = () => {
+    setSpendTypeFilter('all')
+    setCategoryFilter('all')
+    setCardFilter('all')
+    setQuery('')
+  }
+
   return (
     <div className="page">
-      <header className="page-head">
+      <header className="page-head page-head--ledger">
         <div>
           <p className="page-head__eyebrow">LEDGER</p>
           <h1>가계부</h1>
         </div>
         <div className="page-head__actions">
           <MonthPicker month={month} onChange={setMonth} />
-          <button type="button" className="btn btn--primary" onClick={onAdd}>
+          <button
+            type="button"
+            className="btn btn--primary page-head__add-btn"
+            onClick={onAdd}
+          >
             <Icon name="plus" size={18} />
             내역 추가
           </button>
@@ -202,36 +248,47 @@ export function LedgerPage({
       </header>
 
       <section className="ledger-summary panel">
-        <div>
-          <span>총 지출</span>
-          <strong>{won(total)}</strong>
-        </div>
-        <div>
-          <span>결제 건수</span>
-          <strong>{actualSpending.length}건</strong>
-        </div>
-        <div>
-          <span>건당 평균</span>
-          <strong>{won(actualSpending.length ? total / actualSpending.length : 0)}</strong>
-        </div>
-        {savingsTotal > 0 && (
-          <div className="ledger-summary__savings">
-            <span>저축</span>
-            <strong>{won(savingsTotal)}</strong>
+        <div className="ledger-summary__hero">
+          <div className="ledger-summary__hero-main">
+            <span className="ledger-summary__label">
+              총 지출
+              {hasActiveFilter && (
+                <Badge tone="accent">필터 적용됨</Badge>
+              )}
+            </span>
+            <strong className="ledger-summary__total">{won(total)}</strong>
           </div>
-        )}
-        {spendExcluded.length > 0 && (
-          <div>
-            <span>지출 제외(실적용)</span>
-            <strong>{won(spendExcludedTotal)}</strong>
+          {savingsTotal > 0 && (
+            <div className="ledger-summary__hero-savings">
+              <span>이번 달 저축</span>
+              <strong>+{won(savingsTotal)}</strong>
+            </div>
+          )}
+        </div>
+        <div className="ledger-summary__grid">
+          <div className="ledger-summary__stat">
+            <span>결제 건수</span>
+            <strong>{actualSpending.length}건</strong>
           </div>
-        )}
-        {excludedCount > 0 && (
-          <div>
-            <span>실적 제외</span>
-            <strong>{excludedCount}건</strong>
+          <div className="ledger-summary__stat">
+            <span>건당 평균</span>
+            <strong>
+              {won(actualSpending.length ? total / actualSpending.length : 0)}
+            </strong>
           </div>
-        )}
+          {spendExcluded.length > 0 && (
+            <div className="ledger-summary__stat ledger-summary__stat--accent">
+              <span>실적 채움(지출 제외)</span>
+              <strong>{won(spendExcludedTotal)}</strong>
+            </div>
+          )}
+          {excludedCount > 0 && (
+            <div className="ledger-summary__stat">
+              <span>실적 제외</span>
+              <strong>{excludedCount}건</strong>
+            </div>
+          )}
+        </div>
       </section>
 
       <section className="panel fixed-panel">
@@ -302,7 +359,10 @@ export function LedgerPage({
                       )
                     : undefined
                   return (
-                    <li className="fixed-row" key={fixedExpense.id}>
+                    <li
+                      className={`fixed-row fixed-row--${status}`}
+                      key={fixedExpense.id}
+                    >
                       <span
                         className="fixed-row__icon"
                         style={{ background: `${category.color}18` }}
@@ -310,8 +370,10 @@ export function LedgerPage({
                         {category.emoji}
                       </span>
                       <div className="fixed-row__main">
-                        <strong>
-                          {fixedExpense.name}
+                        <strong className="fixed-row__title">
+                          <span className="fixed-row__name">
+                            {fixedExpense.name}
+                          </span>
                           <Badge
                             tone={
                               status === 'recorded'
@@ -327,7 +389,7 @@ export function LedgerPage({
                               : ''}
                           </Badge>
                         </strong>
-                        <span>
+                        <span className="fixed-row__meta">
                           매월 {fixedExpenseDayLabel(fixedExpense.dayOfMonth)} ·{' '}
                           {isSavingsFixedExpense(fixedExpense)
                             ? '저축'
@@ -337,12 +399,12 @@ export function LedgerPage({
                             fixedExpense.paymentMethod ??
                             '현금·계좌'}
                         </span>
-                        <small>
+                        <small className="fixed-row__date">
                           {status === 'recorded'
                             ? `${formatDateShort(
                                 application?.date ?? dueDate,
-                              )} 반영`
-                            : `${formatDateShort(dueDate)} 예정`}
+                              )} 반영 완료`
+                            : `${formatDateShort(dueDate)} 결제 예정`}
                         </small>
                         {status !== 'recorded' && candidates.length > 0 && (
                           <div className="fixed-candidates">
@@ -405,40 +467,100 @@ export function LedgerPage({
       </section>
 
       <section className="filters panel">
-        <div className="search">
-          <Icon name="search" size={18} />
-          <input
-            type="search"
-            placeholder="결제·저축처, 카테고리, 메모 검색"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            aria-label="결제·저축 내역 검색"
-          />
+        <div className="filters__top">
+          <div className="search">
+            <Icon name="search" size={18} />
+            <input
+              type="search"
+              placeholder="결제·저축처, 카테고리, 메모 검색"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              aria-label="결제·저축 내역 검색"
+            />
+            {query && (
+              <button
+                type="button"
+                className="search__clear"
+                onClick={() => setQuery('')}
+                aria-label="검색어 지우기"
+              >
+                <Icon name="close" size={14} />
+              </button>
+            )}
+          </div>
+          {hasActiveFilter && (
+            <button
+              type="button"
+              className="filters__reset-btn"
+              onClick={resetFilters}
+            >
+              <Icon name="close" size={13} />
+              초기화
+            </button>
+          )}
         </div>
-        <div className="filters__selects">
-          <select
-            value={spendTypeFilter}
-            onChange={(event) =>
-              setSpendTypeFilter(event.target.value as SpendTypeFilter)
-            }
-            aria-label="지출 분류 필터"
+
+        <div
+          className="filters__chips"
+          role="tablist"
+          aria-label="지출 분류 필터"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={spendTypeFilter === 'all'}
+            className={`filter-chip${spendTypeFilter === 'all' ? ' is-active' : ''}`}
+            onClick={() => setSpendTypeFilter('all')}
           >
-            <option value="all">전체 지출·저축</option>
-            <option value="actual">실지출만</option>
-            <option value="excluded">실적 채움(지출 제외)만</option>
-            <option value="savings">저축만</option>
-          </select>
+            전체 <span className="filter-chip__count">{spendTypeCounts.all}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={spendTypeFilter === 'actual'}
+            className={`filter-chip${spendTypeFilter === 'actual' ? ' is-active' : ''}`}
+            onClick={() => setSpendTypeFilter('actual')}
+          >
+            실지출{' '}
+            <span className="filter-chip__count">{spendTypeCounts.actual}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={spendTypeFilter === 'excluded'}
+            className={`filter-chip${spendTypeFilter === 'excluded' ? ' is-active' : ''}`}
+            onClick={() => setSpendTypeFilter('excluded')}
+          >
+            실적 인정{' '}
+            <span className="filter-chip__count">
+              {spendTypeCounts.excluded}
+            </span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={spendTypeFilter === 'savings'}
+            className={`filter-chip${spendTypeFilter === 'savings' ? ' is-active' : ''}`}
+            onClick={() => setSpendTypeFilter('savings')}
+          >
+            저축{' '}
+            <span className="filter-chip__count">{spendTypeCounts.savings}</span>
+          </button>
+        </div>
+
+        <div className="filters__selects">
           <select
             value={categoryFilter}
             onChange={(event) =>
               setCategoryFilter(event.target.value as typeof categoryFilter)
             }
             aria-label="카테고리 필터"
+            className={categoryFilter !== 'all' ? 'is-filtered' : ''}
           >
             <option value="all">모든 카테고리</option>
             {CATEGORIES.map((category) => (
               <option key={category.id} value={category.id}>
-                {category.label}
+                {category.emoji} {category.label}
               </option>
             ))}
           </select>
@@ -446,6 +568,7 @@ export function LedgerPage({
             value={cardFilter}
             onChange={(event) => setCardFilter(event.target.value)}
             aria-label="카드 필터"
+            className={cardFilter !== 'all' ? 'is-filtered' : ''}
           >
             <option value="all">모든 결제수단</option>
             <option value="simplepay">⚡ 간편결제</option>
@@ -476,18 +599,25 @@ export function LedgerPage({
             const daySavings = items
               .filter((transaction) => isSavingsCategory(transaction.categoryId))
               .reduce((sum, transaction) => sum + transaction.amount, 0)
+            const wday = weekdayOf(date)
+            const dayToneClass =
+              wday === 0 ? ' is-sun' : wday === 6 ? ' is-sat' : ''
             return (
               <section className="tx-group" key={date}>
                 <header className="tx-group__head">
-                  <span>
-                    {formatDateKo(date)}
-                    <small>{items.length}건</small>
+                  <span className={`tx-group__date${dayToneClass}`}>
+                    <strong>{formatDateKo(date)}</strong>
+                    <span className="tx-group__count">{items.length}건</span>
                   </span>
                   <span className="tx-group__sum">
-                    <strong>{won(daySpend)}</strong>
+                    {daySpend > 0 && (
+                      <strong className="tx-group__spend">
+                        {won(daySpend)}
+                      </strong>
+                    )}
                     {daySavings > 0 && (
                       <small className="tx-group__savings">
-                        + 저축 {won(daySavings)}
+                        +저축 {won(daySavings)}
                       </small>
                     )}
                   </span>
@@ -510,11 +640,17 @@ export function LedgerPage({
                       ? benefitRuleForTransaction(card, transaction)
                       : null
                     const minAmount = rule?.minTransactionAmount
-                    const benefitExclusion =
+                    const benefitExclusionFull =
                       !transaction.excluded &&
                       minAmount !== undefined &&
                       transaction.amount < minAmount
                         ? `혜택 제외 · ${wonShort(minAmount)} 미만`
+                        : null
+                    const benefitExclusionShort =
+                      !transaction.excluded &&
+                      minAmount !== undefined &&
+                      transaction.amount < minAmount
+                        ? `${wonShort(minAmount)} 미만`
                         : null
                     return (
                       <li key={transaction.id}>
@@ -531,22 +667,40 @@ export function LedgerPage({
                           </span>
                           <span className="tx__main">
                             <span className="tx__merchant">
-                              {displayName}
-                              {transaction.source === 'seed' && (
-                                <Badge tone="warn">테스트</Badge>
-                              )}
-                              {savings ? (
-                                <Badge tone="success">저축</Badge>
-                              ) : isExcludedFromSpend(transaction) ? (
-                                <Badge tone="accent">지출 제외 · 실적 인정</Badge>
-                              ) : (
-                                transaction.excluded && (
-                                  <Badge tone="neutral">실적 제외</Badge>
-                                )
-                              )}
-                              {benefitExclusion && (
-                                <Badge tone="warn">{benefitExclusion}</Badge>
-                              )}
+                              <span className="tx__merchant-name">
+                                {displayName}
+                              </span>
+                              <span className="tx__badges">
+                                {transaction.source === 'seed' && (
+                                  <Badge tone="warn">테스트</Badge>
+                                )}
+                                {savings ? (
+                                  <Badge tone="success">저축</Badge>
+                                ) : isExcludedFromSpend(transaction) ? (
+                                  <Badge tone="accent">
+                                    <span className="badge__full">
+                                      지출 제외 · 실적 인정
+                                    </span>
+                                    <span className="badge__compact">
+                                      실적용
+                                    </span>
+                                  </Badge>
+                                ) : (
+                                  transaction.excluded && (
+                                    <Badge tone="neutral">실적 제외</Badge>
+                                  )
+                                )}
+                                {benefitExclusionFull && (
+                                  <Badge tone="warn">
+                                    <span className="badge__full">
+                                      {benefitExclusionFull}
+                                    </span>
+                                    <span className="badge__compact">
+                                      {benefitExclusionShort}
+                                    </span>
+                                  </Badge>
+                                )}
+                              </span>
                             </span>
                             <span className="tx__meta">
                               {savings
