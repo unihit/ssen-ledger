@@ -2123,6 +2123,27 @@ select:focus {
   margin-bottom: 0;
 }
 
+.fixed-panel .panel__head,
+.fixed-home .panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 12px;
+}
+
+.fixed-panel .panel__head > div:first-child,
+.fixed-home .panel__head > div:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fixed-panel .panel__head p,
+.fixed-home .panel__head p {
+  word-break: keep-all;
+  line-height: 1.35;
+}
+
 .fixed-panel__toggle-icon {
   display: inline-flex;
   align-items: center;
@@ -2136,18 +2157,28 @@ select:focus {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  text-align: right;
   gap: 2px;
   flex: 0 0 auto;
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .fixed-panel__summary strong {
   font-size: 18px;
+  font-weight: 800;
   letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  color: var(--text);
 }
 
 .fixed-panel__summary span {
   color: var(--text-3);
-  font-size: 10.5px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .fixed-list {
@@ -3926,6 +3957,12 @@ select:focus {
     gap: 8px;
   }
 
+  .fixed-panel .panel__head,
+  .fixed-home .panel__head {
+    flex-wrap: nowrap;
+    gap: 10px;
+  }
+
   .home-grid,
   .report-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -4118,12 +4155,57 @@ select:focus {
     display: none;
   }
 
-  .fixed-panel .panel__head {
+  .fixed-panel .panel__head,
+  .fixed-home .panel__head {
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    justify-content: space-between;
     gap: 10px;
+  }
+
+  .fixed-panel .panel__head > div:first-child,
+  .fixed-home .panel__head > div:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .fixed-panel .panel__head h2,
+  .fixed-home .panel__head h2 {
+    font-size: 15px;
+    letter-spacing: -0.03em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+
+  .fixed-panel .panel__head p,
+  .fixed-home .panel__head p {
+    font-size: 11px;
+    margin-top: 3px;
+    line-height: 1.35;
+    word-break: keep-all;
+  }
+
+  .fixed-panel__summary {
+    flex: 0 0 auto;
+    margin-left: auto;
+    align-items: flex-end;
+    text-align: right;
   }
 
   .fixed-panel__summary strong {
     font-size: 16px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .fixed-panel__summary span {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
   }
 
   .badge__full {
@@ -4267,6 +4349,20 @@ select:focus {
   .chip-row .chip {
     padding: 8px 10px;
     font-size: 11px;
+  }
+
+  .fixed-panel .panel__head h2,
+  .fixed-home .panel__head h2 {
+    font-size: 14px;
+    gap: 5px;
+  }
+
+  .fixed-panel__summary strong {
+    font-size: 15px;
+  }
+
+  .fixed-panel__summary span {
+    font-size: 10px;
   }
 }
 
