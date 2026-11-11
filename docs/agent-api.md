@@ -709,3 +709,299 @@ Google Sheet의 현재 데이터를 API로 옮길 때는 실제 거래 데이터
 - 카드 이름이 없으면 `cardId`/`cardName`을 비우고 `paymentMethod`만 보냅니다.
 - 현금·계좌이체·자동이체는 카드와 연결하지 않습니다.
 - 같은 이름이 여러 카드와 겹치면 API가 후보 목록과 함께 `400`을 반환하므로, 임의로 하나를 고르지 말고 사용자에게 확인합니다.
+
+---
+
+## 13. AI Agent (Muse) 특화 엔드포인트
+
+대화형 AI 에이전트(Muse)가 가계부를 다룰 때 실시간 조언 및 자동화를 수행할 수 있도록 설계된 전용 고수준 API입니다.
+
+### 13-1. 실시간 최적 카드 추천 (`POST /v1/cards/recommend`)
+
+결제할 금액, 가맹점, 카테고리, 결제수단을 전달하면 **전월 실적 달성 여부, 카테고리/간편결제 할인율, 남은 월 통합 할인 한도, 카드 신규 이벤트 조건**을 종합 계산하여 가장 유리한 카드와 이유를 추천합니다.
+
+#### 요청
+```bash
+curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/cards/recommend" \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -H "Content-Type: application/json; charset=utf-8" \
+  -d '{
+    "amount": 25000,
+    "merchant": "배달의민족",
+    "category": "delivery",
+    "paymentMethod": "간편결제"
+  }'
+```
+
+- `amount` (필수): 결제 금액 (원)
+- `merchant` (선택): 가맹점명 (생략 시 카테고리 기준 계산)
+- `category` (선택): 영문 카테고리 ID (`food`, `cafe`, `mart`, `delivery`, `transport` 등) 또는 한글 라벨 (`배달`, `식비`, `카페`, `대중교통` 등). 생략 시 `merchant`에서 자동 유추
+- `paymentMethod` (선택): 결제수단 (`간편결제`, `체크카드`, `신용카드` 등)
+- `month` (선택): 기준 월 (`YYYY-MM`, 기본값: 현재 한국시간 당월)
+
+#### 응답 예시
+```json
+{
+  "data": {
+    "month": "2026-11",
+    "simulated": {
+      "amount": 25000,
+      "merchant": "배달의민족",
+      "categoryId": "delivery",
+      "categoryLabel": "배달",
+      "paymentMethod": "간편결제"
+    },
+    "bestCard": {
+      "id": "mg-plus-s-hana",
+      "name": "MG+ S 하나카드",
+      "gain": 2500,
+      "eligible": true,
+      "reason": "간편결제 10% · +2,500원",
+      "effectiveRate": 0.1
+    },
+    "eventCard": {
+      "id": "ibk-kpass-credit",
+      "name": "IBK K-패스 카드",
+      "gain": 0,
+      "event": {
+        "title": "신규 발급 캐시백 이벤트",
+        "targetAmount": 200000,
+        "deadline": "2026-12-31",
+        "daysLeft": 50,
+        "spentSoFar": 73300,
+        "remainingAmount": 126700,
+        "simplePayConditionMet": false,
+        "isCompleted": false,
+        "note": "간편결제 1만원 이상 1건 필수 포함"
+      },
+      "recommendation": "이 카드로 결제 시 이벤트 실적 25,000원이 추가 누적됩니다 (현재 73,300원 / 200,000원, D-50)."
+    },
+    "candidates": [ ... ],
+    "summary": "MG+ S 하나카드 결제 시 간편결제 10% · +2,500원으로 가장 유리합니다. 다만 IBK K-패스 카드의 신규 발급 캐시백 이벤트 달성까지 126,700원 남았으므로 이벤트 채우기를 우선할 수도 있습니다."
+  }
+}
+```
+
+---
+
+### 13-2. 카드별 실적·유예기간·이벤트 진행도 (`GET /v1/cards/status`)
+
+보유한 모든 카드의 전월 실적 달성 여부, 당월 실적 누적액, 다음 달 실적 충족까지 남은 금액, 신규 발급 실적 유예 상태, 당월 할인/캐시백 혜택 수령액 및 남은 한도, 진행 중인 이벤트 현황(D-Day, 남은 금액, 조건 달성 여부)을 한눈에 조회합니다.
+
+#### 요청
+```bash
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/cards/status?month=2026-11" \
+  -H "Authorization: Bearer $AGENT_API_KEY"
+```
+
+#### 응답 예시
+```json
+{
+  "data": {
+    "month": "2026-11",
+    "summary": {
+      "totalCards": 9,
+      "cardsMeetingPerformance": 7,
+      "totalBenefitSaved": 7263
+    },
+    "cards": [
+      {
+        "id": "ibk-kpass-credit",
+        "name": "IBK K-패스 카드",
+        "issuer": "IBK기업은행",
+        "kind": "credit",
+        "active": true,
+        "minSpendForBenefits": 200000,
+        "prevMonthSpend": 0,
+        "currentMonthSpend": 73300,
+        "performanceMet": true,
+        "inGracePeriod": true,
+        "toRequirement": 126700,
+        "totalCap": 28200,
+        "benefitUsed": 5864,
+        "capLeft": 22336,
+        "event": {
+          "title": "신규 발급 캐시백 이벤트",
+          "targetAmount": 200000,
+          "deadline": "2026-12-31",
+          "daysLeft": 50,
+          "spentSoFar": 73300,
+          "remainingAmount": 126700,
+          "requireSimplePay": true,
+          "simplePayConditionMet": false,
+          "isCompleted": false,
+          "note": "간편결제 1만원 이상 1건 필수 포함"
+        }
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 13-3. 월 지출 페이스 및 권장 일일 예산 (`GET /v1/insights/pace`)
+
+월 지출 경과율 대비 실제 지출 페이스를 진단하고, 월말 예상 지출액 및 남은 날짜 동안의 하루 권장 지출액을 계산합니다. 또한 예산 소진 속도가 비정상적으로 빠른 업종(급증 카테고리)을 자동으로 탐지합니다.
+
+#### 요청
+```bash
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/insights/pace?month=2026-11" \
+  -H "Authorization: Bearer $AGENT_API_KEY"
+```
+
+#### 응답 예시
+```json
+{
+  "data": {
+    "month": "2026-11",
+    "asOfDate": "2026-11-11",
+    "days": {
+      "total": 30,
+      "elapsed": 11,
+      "remaining": 19,
+      "elapsedPercent": 36.7
+    },
+    "budget": {
+      "monthlyBudget": 900000,
+      "spentSoFar": 230185,
+      "remainingBudget": 669815,
+      "budgetUsedPercent": 25.6,
+      "currentDailyAverage": 20926,
+      "recommendedDailyBudget": 35253
+    },
+    "pace": {
+      "ratio": 0.7,
+      "projectedMonthEndSpend": 627777,
+      "projectedDifference": -272223,
+      "status": "excellent",
+      "statusLabel": "매우 여유로움 🟢"
+    },
+    "surgeCategories": [
+      {
+        "categoryId": "shopping",
+        "categoryMinor": "의복/미용",
+        "budget": 35000,
+        "spent": 29237,
+        "budgetUsedPercent": 83.5,
+        "paceRatio": 2.28,
+        "status": "빠름"
+      }
+    ],
+    "message": "11월 11일 기준 생활비 예산 900,000원 중 230,185원(25.6%)을 사용했습니다. 한 달의 36.7%가 지난 시점에 페이스는 0.7배로 [매우 여유로움 🟢] 상태입니다. 현재 추세 유지 시 월말 예상 지출은 627,777원(예산 대비 -272,223원)입니다. 남은 19일 동안 일일 권장 지출액은 35,253원입니다."
+  }
+}
+```
+
+---
+
+### 13-4. 오늘 및 미기록 고정지출 알림 (`GET /v1/fixed-expenses/today`, `/pending`)
+
+오늘(또는 지정일) 결제/출금 예정인 고정지출과, 예정일이 지났음에도 아직 가계부에 기록되지 않은 항목(미기록 의심 건)을 모아서 반환합니다.
+
+#### 요청
+```bash
+# 오늘 출금 예정 및 미기록 항목 요약
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses/today" \
+  -H "Authorization: Bearer $AGENT_API_KEY"
+
+# 이달의 모든 대기(미기록) 고정지출 목록
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/fixed-expenses/pending?month=2026-11" \
+  -H "Authorization: Bearer $AGENT_API_KEY"
+```
+
+#### 응답 예시
+```json
+{
+  "data": {
+    "date": "2026-11-11",
+    "month": "2026-11",
+    "summary": {
+      "totalMonthlyFixed": 1231890,
+      "recordedAmount": 0,
+      "remainingAmount": 1231890,
+      "dueTodayCount": 0,
+      "dueTodayAmount": 0,
+      "overdueCount": 0,
+      "overdueAmount": 0,
+      "upcomingCount": 6,
+      "upcomingAmount": 1231890
+    },
+    "dueToday": [],
+    "overdueUnrecorded": [],
+    "upcomingThisMonth": [ ... ],
+    "recordedThisMonth": [],
+    "message": "오늘 결제 예정이거나 미기록된 고정지출이 없습니다. (남은 이달 예정: 6건, 1,231,890원)"
+  }
+}
+```
+
+---
+
+### 13-5. 결제 알림 스마트 파싱 및 중복 검증 (`POST /v1/transactions/smart-parse`)
+
+카드사 SMS, 앱 푸시 알림, 카카오톡 알림톡, 또는 일상 대화 텍스트(예: "오늘 배민에서 18500원 국민카드로 시켜먹었어")를 전송하면, 정규식과 사전 매핑을 통해 날짜·시간·금액·가맹점·카테고리·결제카드·결제수단을 자동 추출하고 **기존 등록된 거래와 중복 여부(동일 일자·동일 금액·유사 가맹점)**를 즉시 검증합니다.
+
+#### 요청
+```bash
+curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/transactions/smart-parse" \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -H "Content-Type: application/json; charset=utf-8" \
+  -d '{
+    "text": "[KB국민체크] 11/11 13:20 18,500원 배달의민족 승인"
+  }'
+```
+
+#### 응답 예시 (신규 결제 건)
+```json
+{
+  "data": {
+    "raw": "[KB국민체크] 11/11 13:20 18,500원 배달의민족 승인",
+    "parsed": {
+      "date": "2026-11-11",
+      "time": "13:20",
+      "merchant": "배달의민족",
+      "amount": 18500,
+      "categoryId": "delivery",
+      "categoryLabel": "배달",
+      "type": "생활비",
+      "cardId": "kb-bonus-check",
+      "cardName": "KB국민 직장인보너스체크카드",
+      "paymentMethod": "체크카드"
+    },
+    "isDuplicateCandidate": false,
+    "duplicateCandidates": [],
+    "confidence": "high"
+  }
+}
+```
+
+#### 응답 예시 (이미 등록된 중복 의심 건)
+```json
+{
+  "data": {
+    "raw": "11/11 1040원 쿠팡 결제",
+    "parsed": {
+      "date": "2026-11-11",
+      "merchant": "쿠팡",
+      "amount": 1040,
+      "categoryId": "shopping",
+      ...
+    },
+    "isDuplicateCandidate": true,
+    "duplicateCandidates": [
+      {
+        "id": "25e2dbca-7f39-4dbc-9a9a-51d28868713b",
+        "date": "2026-11-11",
+        "merchant": "쿠팡",
+        "amount": 1040,
+        "paymentMethod": "간편결제",
+        "createdAt": "2026-11-11T01:50:09.535365+00:00"
+      }
+    ],
+    "confidence": "high"
+  }
+}
+```
+MUSE는 `isDuplicateCandidate: true`인 경우 "동일한 날짜에 같은 금액(1,040원)의 쿠팡 결제 내역이 이미 존재합니다. 새로 등록하시겠습니까?"라고 사용자에게 확인 질문을 건넬 수 있습니다.
+

@@ -2752,6 +2752,1027 @@ async function updateBudget(
   )
 }
 
+interface BenefitRule {
+  id: string
+  categoryId: string
+  rate: number
+  monthlyCap: number
+  minSpend?: number
+  minTransactionAmount?: number
+  paymentMethods?: string[]
+  note?: string
+}
+
+interface PerformanceTier {
+  minSpend: number
+  monthlyTotalCap: number
+}
+
+interface CardEvent {
+  title: string
+  targetAmount: number
+  deadline: string
+  requireSimplePay?: boolean
+  minSimplePayAmount?: number
+  reward?: string
+  note?: string
+}
+
+interface FullCard {
+  id: string
+  name: string
+  issuer: string
+  kind: 'credit' | 'check'
+  minSpendForBenefits: number
+  monthlyTotalCap: number
+  baseRate: number
+  baseCap: number
+  benefits: BenefitRule[]
+  performanceTiers: PerformanceTier[]
+  gracePeriodMonths?: string[]
+  event?: CardEvent
+  active: boolean
+}
+
+const PREDEFINED_CARD_METADATA: Record<string, {
+  gracePeriodMonths?: string[]
+  event?: CardEvent
+}> = {
+  'ibk-kpass-credit': {
+    gracePeriodMonths: ['2026-11', '2026-12'],
+    event: {
+      title: '신규 발급 캐시백 이벤트',
+      targetAmount: 200_000,
+      deadline: '2026-12-31',
+      requireSimplePay: true,
+      minSimplePayAmount: 10_000,
+      reward: '캐시백 지급',
+      note: '간편결제 1만원 이상 1건 필수 포함',
+    },
+  },
+}
+
+function won(value: number): string {
+  return `${Math.round(value).toLocaleString('ko-KR')}원`
+}
+
+function wonShort(value: number): string {
+  if (value >= 10_000 && value % 10_000 === 0) {
+    return `${value / 10_000}만원`
+  }
+  return won(value)
+}
+
+function shiftMonth(month: string, delta: number): string {
+  const [year, monthNumber] = month.split('-').map(Number)
+  const date = new Date(Date.UTC(year, monthNumber - 1 + delta, 1))
+  const y = date.getUTCFullYear()
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
+}
+
+function inferCategoryFromMerchant(merchant: string): string {
+  const m = merchant.toLowerCase()
+  if (/배달의민족|배민|요기요|쿠팡이츠|땡겨요/i.test(m)) return 'delivery'
+  if (/스타벅스|스벅|이디야|투썸|메가커피|메가mgc|컴포즈|빽다방|파스쿠찌|폴바셋|공차|커피|카페/i.test(m)) return 'cafe'
+  if (/gs25|cu|세븐일레븐|이마트24|미니스톱|이마트|홈플러스|롯데마트|트레이더스|코스트코|하나로마트|편의점|마트|슈퍼/i.test(m)) return 'mart'
+  if (/버스|지하철|티머니|코레일|ktx|srt|고속버스|카카오t|카카오택시|타다|택시|교통|대중교통/i.test(m)) return 'transport'
+  if (/쿠팡|네이버쇼핑|무신사|29cm|올리브영|지그재그|에이블리|11번가|g마켓|옥션|백화점|아울렛/i.test(m)) return 'shopping'
+  if (/식당|맥도날드|버거킹|맘스터치|롯데리아|서브웨이|아웃백|빕스|김밥|식사|한식|일식|중식|치킨|피자|갈비|고기|순대국|짜장|교촌|bbq|bhc/i.test(m)) return 'food'
+  if (/skt|kt|lgu\+|lg유플러스|알뜰폰|통신요금|통신비/i.test(m)) return 'telecom'
+  if (/넷플릭스|netflix|유튜브|youtube|디즈니|티빙|tving|웨이브|wavve|왓챠|멜론|지니|스포티파이|밀리의서재/i.test(m)) return 'subscription'
+  if (/넥슨|라이엇|스팀|steam|블리자드|닌텐도|플레이스테이션|구글플레이|게임/i.test(m)) return 'game'
+  if (/약국|의원|병원|치과|안과|내과|이비인후과|한의원/i.test(m)) return 'medical'
+  if (/보험|화재|생명|해상/i.test(m)) return 'insurance'
+  if (/관리비|도시가스|전기요금|한전/i.test(m)) return 'housing'
+  if (/호텔|리조트|펜션|에어비앤비|항공|비행기|야놀자|여기어때/i.test(m)) return 'travel'
+  if (/cgv|메가박스|롯데시네마|영화|극장|전시|공연/i.test(m)) return 'culture'
+  return 'etc'
+}
+
+async function fetchFullCards(householdId: string): Promise<FullCard[]> {
+  const { data, error } = await db()
+    .from('cards')
+    .select(
+      'id, name, issuer, kind, min_spend_for_benefits, monthly_total_cap, base_rate, base_cap, benefits, performance_tiers, active',
+    )
+    .eq('household_id', householdId)
+    .order('name', { ascending: true })
+
+  if (error) throw dbError(error)
+
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+    const id = String(row.id)
+    const meta = PREDEFINED_CARD_METADATA[id]
+    return {
+      id,
+      name: String(row.name ?? ''),
+      issuer: String(row.issuer ?? ''),
+      kind: row.kind === 'check' ? 'check' : 'credit',
+      minSpendForBenefits: Number(row.min_spend_for_benefits) || 0,
+      monthlyTotalCap: Number(row.monthly_total_cap) || 0,
+      baseRate: Number(row.base_rate) || 0,
+      baseCap: Number(row.base_cap) || 0,
+      benefits: Array.isArray(row.benefits) ? (row.benefits as BenefitRule[]) : [],
+      performanceTiers: Array.isArray(row.performance_tiers)
+        ? (row.performance_tiers as PerformanceTier[])
+        : [],
+      gracePeriodMonths: meta?.gracePeriodMonths,
+      event: meta?.event,
+      active: row.active !== false,
+    }
+  })
+}
+
+function findRuleForTx(
+  rules: BenefitRule[],
+  categoryId: string,
+  paymentMethod?: string,
+): BenefitRule | null {
+  const categoryRule = rules.find((rule) => rule.categoryId === categoryId)
+  if (categoryRule) return categoryRule
+
+  return (
+    rules.find((rule) => rule.paymentMethods?.includes(paymentMethod ?? '')) ?? null
+  )
+}
+
+function matchPerformanceTier(
+  card: FullCard,
+  prevSpend: number,
+): PerformanceTier | null {
+  const tiers = [...(card.performanceTiers ?? [])].sort((a, b) => a.minSpend - b.minSpend)
+  let matched: PerformanceTier | null = null
+  for (const tier of tiers) {
+    if (prevSpend >= tier.minSpend) matched = tier
+    else break
+  }
+  return matched
+}
+
+interface EvaluatedCardMonth {
+  card: FullCard
+  prevSpend: number
+  spend: number
+  performanceMet: boolean
+  inGracePeriod: boolean
+  toRequirement: number
+  nextTier: number | null
+  nextTierRemaining: number
+  totalBenefit: number
+  totalCap: number
+  performanceTier: PerformanceTier | null
+  capLeft: number
+  effectiveRate: number
+  rows: {
+    rule: BenefitRule
+    spend: number
+    raw: number
+    applied: number
+    capLeft: number
+  }[]
+}
+
+function computeCardMonthEdge(
+  card: FullCard,
+  transactions: Record<string, unknown>[],
+  month: string,
+): EvaluatedCardMonth {
+  const prevMonth = shiftMonth(month, -1)
+  let prevSpend = 0
+  let currentSpend = 0
+  const monthTransactions: Record<string, unknown>[] = []
+
+  for (const t of transactions) {
+    if (String(t.card_id || t.cardId) !== card.id) continue
+    if (t.status && t.status !== 'active') continue
+    const date = String(t.date || '')
+    const amt = Number(t.effective_amount ?? t.amount) || 0
+    if (amt <= 0) continue
+
+    if (date.startsWith(prevMonth)) {
+      prevSpend += amt
+    } else if (date.startsWith(month)) {
+      currentSpend += amt
+      monthTransactions.push(t)
+    }
+  }
+
+  const inGracePeriod =
+    (card.gracePeriodMonths?.includes(month) ?? false) &&
+    prevSpend < card.minSpendForBenefits
+  const effectivePrevSpend = inGracePeriod
+    ? Math.max(prevSpend, card.minSpendForBenefits)
+    : prevSpend
+  const performanceMet = inGracePeriod || prevSpend >= card.minSpendForBenefits
+  const performanceTier = matchPerformanceTier(card, effectivePrevSpend)
+  const totalCap = performanceTier?.monthlyTotalCap ?? card.monthlyTotalCap
+
+  const applicableRules = performanceMet
+    ? card.benefits.filter(
+        (rule) => effectivePrevSpend >= (rule.minSpend ?? card.minSpendForBenefits),
+      )
+    : []
+
+  const ruleSpend = new Map<string, number>(applicableRules.map((r) => [r.id, 0]))
+  const countedByRule = new Set<Record<string, unknown>>()
+
+  for (const t of monthTransactions) {
+    const catId = String(t.category_id || t.categoryId || '')
+    const payMethod = t.payment_method ? String(t.payment_method) : undefined
+    const amt = Number(t.effective_amount ?? t.amount) || 0
+
+    if (
+      catId === 'giftcard' ||
+      catId === 'savings' ||
+      Boolean(t.excluded) ||
+      (t.merchant && /실적\s*채움/i.test(String(t.merchant)))
+    ) {
+      continue
+    }
+
+    const rule = findRuleForTx(applicableRules, catId, payMethod)
+    if (!rule) continue
+
+    countedByRule.add(t)
+    if (rule.minTransactionAmount && amt < rule.minTransactionAmount) {
+      continue
+    }
+    ruleSpend.set(rule.id, (ruleSpend.get(rule.id) ?? 0) + amt)
+  }
+
+  const rows = applicableRules.map((rule) => {
+    const spend = ruleSpend.get(rule.id) ?? 0
+    const raw = Math.round(spend * rule.rate)
+    const applied = Math.min(raw, rule.monthlyCap)
+    return {
+      rule,
+      spend,
+      raw,
+      applied,
+      capLeft: Math.max(0, rule.monthlyCap - applied),
+    }
+  })
+
+  let baseSpend = 0
+  if (performanceMet && card.baseRate > 0) {
+    for (const t of monthTransactions) {
+      const catId = String(t.category_id || t.categoryId || '')
+      if (
+        catId === 'giftcard' ||
+        catId === 'savings' ||
+        Boolean(t.excluded) ||
+        (t.merchant && /실적\s*채움/i.test(String(t.merchant))) ||
+        countedByRule.has(t)
+      ) {
+        continue
+      }
+      baseSpend += Number(t.effective_amount ?? t.amount) || 0
+    }
+  }
+
+  const baseApplied = performanceMet
+    ? Math.min(Math.round(baseSpend * card.baseRate), card.baseCap)
+    : 0
+
+  const rawBenefit = rows.reduce((acc, r) => acc + r.applied, 0) + baseApplied
+  const totalBenefit = Math.min(rawBenefit, totalCap)
+
+  const tiers = new Set<number>()
+  if (card.minSpendForBenefits > 0) tiers.add(card.minSpendForBenefits)
+  for (const r of card.benefits) if (r.minSpend && r.minSpend > 0) tiers.add(r.minSpend)
+  for (const pt of card.performanceTiers ?? []) if (pt.minSpend > 0) tiers.add(pt.minSpend)
+  const sortedTiers = [...tiers].sort((a, b) => a - b)
+  const nextTier = sortedTiers.find((tier) => tier > currentSpend) ?? null
+
+  return {
+    card,
+    prevSpend,
+    spend: currentSpend,
+    performanceMet,
+    inGracePeriod,
+    toRequirement: Math.max(0, card.minSpendForBenefits - currentSpend),
+    nextTier,
+    nextTierRemaining: nextTier === null ? 0 : Math.max(0, nextTier - currentSpend),
+    totalBenefit,
+    totalCap,
+    performanceTier,
+    capLeft: Math.max(0, totalCap - totalBenefit),
+    effectiveRate: currentSpend > 0 ? totalBenefit / currentSpend : 0,
+    rows,
+  }
+}
+
+async function recommendCards(
+  householdId: string,
+  input: Record<string, unknown>,
+) {
+  const rawMonth =
+    input.month !== undefined && input.month !== null && input.month !== ''
+      ? String(input.month)
+      : todayKst().slice(0, 7)
+  const month = normalizeMonth(rawMonth)
+  const prevMonth = shiftMonth(month, -1)
+  const amount = Math.max(0, Math.round(Number(input.amount) || 0))
+  const merchant = input.merchant ? String(input.merchant).trim() : ''
+  const paymentMethodInput = input.paymentMethod ? String(input.paymentMethod).trim() : ''
+
+  let categoryId: string | null = null
+  const catInput = input.category || input.categoryId || input.categoryMinor
+  if (catInput) {
+    categoryId = normalizeCategoryKey(String(catInput))
+  }
+  if (!categoryId && merchant) {
+    categoryId = inferCategoryFromMerchant(merchant)
+  }
+  if (!categoryId) categoryId = 'etc'
+
+  const categoryInfo = APP_SPENDING_CATEGORIES.find((c) => c.id === categoryId)
+  const categoryLabel = categoryInfo?.label ?? '기타'
+
+  const cards = (await fetchFullCards(householdId)).filter((c) => c.active)
+
+  const prevRange = monthRange(prevMonth)
+  const currRange = monthRange(month)
+  const { data: txData, error: txError } = await db()
+    .from('transactions')
+    .select(
+      'id, date, merchant, amount, effective_amount, category_id, card_id, payment_method, status, excluded',
+    )
+    .eq('household_id', householdId)
+    .eq('status', 'active')
+    .gte('date', prevRange.from)
+    .lte('date', currRange.to)
+
+  if (txError) throw dbError(txError)
+  const transactions = (txData ?? []) as Record<string, unknown>[]
+
+  const results = []
+  let bestCard: Record<string, unknown> | null = null
+  let eventCard: Record<string, unknown> | null = null
+
+  for (const card of cards) {
+    const before = computeCardMonthEdge(card, transactions, month)
+    const defaultMethod = card.kind === 'check' ? '체크카드' : '신용카드'
+    const simulatedMethod = paymentMethodInput || defaultMethod
+    const simulatedTx: Record<string, unknown> = {
+      id: '__sim__',
+      date: `${month}-01`,
+      merchant: merchant || '결제 예정',
+      amount,
+      effective_amount: amount,
+      category_id: categoryId,
+      card_id: card.id,
+      payment_method: simulatedMethod,
+      status: 'active',
+      excluded: false,
+    }
+
+    const after = computeCardMonthEdge(card, [...transactions, simulatedTx], month)
+    const gain = Math.max(0, after.totalBenefit - before.totalBenefit)
+
+    const targetRule = findRuleForTx(card.benefits, categoryId, simulatedMethod)
+    const applicable = targetRule
+      ? before.rows.find((r) => r.rule.id === targetRule.id)
+      : null
+    const matchedRule = applicable?.rule ?? targetRule
+
+    const ruleLabel = matchedRule
+      ? matchedRule.paymentMethods?.includes(simulatedMethod) &&
+        matchedRule.categoryId !== categoryId
+        ? simulatedMethod
+        : (APP_SPENDING_CATEGORIES.find((c) => c.id === matchedRule.categoryId)?.label ?? categoryLabel)
+      : categoryLabel
+
+    let reason = ''
+    if (!before.performanceMet) {
+      reason = `전월 실적 ${wonShort(card.minSpendForBenefits)} 미달`
+    } else if (applicable) {
+      if (applicable.rule.minTransactionAmount && amount < applicable.rule.minTransactionAmount) {
+        reason = `건당 ${won(applicable.rule.minTransactionAmount)} 이상 결제 시 적용`
+      } else if (gain > 0) {
+        reason = `${ruleLabel} ${Math.round(applicable.rule.rate * 100)}% · +${won(gain)}`
+      } else if (before.capLeft <= 0) {
+        reason = '이번 달 통합 한도 소진'
+      } else {
+        reason = `${ruleLabel} 한도 소진`
+      }
+    } else if (targetRule?.minSpend) {
+      reason = `전월 ${wonShort(targetRule.minSpend)} 실적 필요`
+    } else if (gain > 0) {
+      reason = `기본 적립 ${Math.round(card.baseRate * 100)}% · +${won(gain)}`
+    } else if (before.capLeft <= 0) {
+      reason = '이번 달 혜택 한도 소진'
+    } else {
+      reason = '이 카드엔 해당 혜택 조건이 없어요'
+    }
+
+    let eventInfo: Record<string, unknown> | null = null
+    if (card.event) {
+      const ev = card.event
+      const cardTxs = transactions.filter(
+        (t) => String(t.card_id) === card.id && String(t.date) <= ev.deadline,
+      )
+      const spentSoFar = cardTxs.reduce(
+        (sum, t) => sum + (Number(t.effective_amount ?? t.amount) || 0),
+        0,
+      )
+      const hasSimplePay = cardTxs.some(
+        (t) =>
+          String(t.payment_method).includes('간편결제') &&
+          (Number(t.effective_amount ?? t.amount) || 0) >= (ev.minSimplePayAmount ?? 10000),
+      )
+      const willSimplePay =
+        hasSimplePay ||
+        (simulatedMethod.includes('간편결제') && amount >= (ev.minSimplePayAmount ?? 10000))
+      const projectedSpent = spentSoFar + amount
+      const isCompleted = spentSoFar >= ev.targetAmount && (!ev.requireSimplePay || hasSimplePay)
+      const willComplete = projectedSpent >= ev.targetAmount && (!ev.requireSimplePay || willSimplePay)
+
+      const today = todayKst()
+      const dday = Math.max(
+        0,
+        Math.ceil((new Date(ev.deadline).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24)),
+      )
+
+      eventInfo = {
+        title: ev.title,
+        targetAmount: ev.targetAmount,
+        deadline: ev.deadline,
+        daysLeft: dday,
+        spentSoFar,
+        remainingAmount: Math.max(0, ev.targetAmount - spentSoFar),
+        requireSimplePay: Boolean(ev.requireSimplePay),
+        simplePayConditionMet: hasSimplePay,
+        isCompleted,
+        willContribute: !isCompleted,
+        willComplete,
+        note: ev.note,
+      }
+
+      if (!isCompleted && !eventCard) {
+        eventCard = {
+          id: card.id,
+          name: card.name,
+          gain,
+          event: eventInfo,
+          recommendation: `이 카드로 결제 시 이벤트 실적 ${won(amount)}이 추가 누적됩니다 (현재 ${won(spentSoFar)} / ${won(ev.targetAmount)}, D-${dday}).`,
+        }
+      }
+    }
+
+    results.push({
+      id: card.id,
+      name: card.name,
+      issuer: card.issuer,
+      kind: card.kind,
+      gain,
+      eligible: before.performanceMet,
+      reason,
+      effectiveRate: after.effectiveRate,
+      beforeBenefit: before.totalBenefit,
+      afterBenefit: after.totalBenefit,
+      capLeft: before.capLeft,
+      inGracePeriod: before.inGracePeriod,
+      performanceMet: before.performanceMet,
+      event: eventInfo,
+    })
+  }
+
+  results.sort((a, b) => {
+    if (b.gain !== a.gain) return b.gain - a.gain
+    if (b.performanceMet !== a.performanceMet) return Number(b.performanceMet) - Number(a.performanceMet)
+    return b.effectiveRate - a.effectiveRate
+  })
+
+  bestCard = results[0] ?? null
+
+  let summary = ''
+  if (bestCard && Number(bestCard.gain) > 0) {
+    summary = `${bestCard.name} 결제 시 ${bestCard.reason}으로 가장 유리합니다.`
+    if (eventCard && eventCard.id !== bestCard.id) {
+      const ev = eventCard.event as Record<string, unknown>
+      summary += ` 다만 ${eventCard.name}의 ${ev.title} 달성까지 ${won(Number(ev.remainingAmount))} 남았으므로 이벤트 채우기를 우선할 수도 있습니다.`
+    }
+  } else if (eventCard) {
+    const ev = eventCard.event as Record<string, unknown>
+    summary = `할인 혜택은 없으나, ${eventCard.name}로 결제하여 ${ev.title}(남은 금액 ${won(Number(ev.remainingAmount))}) 실적을 채우는 것을 추천합니다.`
+  } else if (bestCard) {
+    summary = `현재 보유 카드 중 추가 할인 대상은 없습니다. (${bestCard.name}: ${bestCard.reason})`
+  }
+
+  return {
+    month,
+    simulated: {
+      amount,
+      merchant: merchant || null,
+      categoryId,
+      categoryLabel,
+      paymentMethod: paymentMethodInput || null,
+    },
+    bestCard,
+    eventCard,
+    candidates: results,
+    summary,
+  }
+}
+
+async function getCardsStatus(householdId: string, monthInput?: string | null) {
+  const month = normalizeMonth(monthInput || todayKst().slice(0, 7))
+  const prevMonth = shiftMonth(month, -1)
+
+  const cards = await fetchFullCards(householdId)
+
+  const prevRange = monthRange(prevMonth)
+  const currRange = monthRange(month)
+  const { data: txData, error: txError } = await db()
+    .from('transactions')
+    .select(
+      'id, date, merchant, amount, effective_amount, category_id, card_id, payment_method, status, excluded',
+    )
+    .eq('household_id', householdId)
+    .eq('status', 'active')
+    .gte('date', prevRange.from)
+    .lte('date', currRange.to)
+
+  if (txError) throw dbError(txError)
+  const transactions = (txData ?? []) as Record<string, unknown>[]
+
+  const eventCards = cards.filter((c) => c.event)
+  let allEventTxs: Record<string, unknown>[] = []
+  if (eventCards.length > 0) {
+    const { data: evData } = await db()
+      .from('transactions')
+      .select('id, date, merchant, amount, effective_amount, card_id, payment_method, status')
+      .eq('household_id', householdId)
+      .eq('status', 'active')
+      .in('card_id', eventCards.map((c) => c.id))
+    allEventTxs = (evData ?? []) as Record<string, unknown>[]
+  }
+
+  const cardStatuses = []
+  let totalBenefitSaved = 0
+  let cardsMetCount = 0
+
+  for (const card of cards) {
+    const evaluated = computeCardMonthEdge(card, transactions, month)
+    totalBenefitSaved += evaluated.totalBenefit
+    if (evaluated.performanceMet) cardsMetCount++
+
+    let eventStatus: Record<string, unknown> | null = null
+    if (card.event) {
+      const ev = card.event
+      const cardTxs = allEventTxs.filter(
+        (t) => String(t.card_id) === card.id && String(t.date) <= ev.deadline,
+      )
+      const spentSoFar = cardTxs.reduce(
+        (sum, t) => sum + (Number(t.effective_amount ?? t.amount) || 0),
+        0,
+      )
+      const hasSimplePay = cardTxs.some(
+        (t) =>
+          String(t.payment_method).includes('간편결제') &&
+          (Number(t.effective_amount ?? t.amount) || 0) >= (ev.minSimplePayAmount ?? 10000),
+      )
+      const isCompleted = spentSoFar >= ev.targetAmount && (!ev.requireSimplePay || hasSimplePay)
+      const today = todayKst()
+      const daysLeft = Math.max(
+        0,
+        Math.ceil((new Date(ev.deadline).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24)),
+      )
+
+      eventStatus = {
+        title: ev.title,
+        targetAmount: ev.targetAmount,
+        deadline: ev.deadline,
+        daysLeft,
+        spentSoFar,
+        remainingAmount: Math.max(0, ev.targetAmount - spentSoFar),
+        requireSimplePay: Boolean(ev.requireSimplePay),
+        simplePayConditionMet: hasSimplePay,
+        isCompleted,
+        reward: ev.reward ?? null,
+        note: ev.note ?? null,
+      }
+    }
+
+    cardStatuses.push({
+      id: card.id,
+      name: card.name,
+      issuer: card.issuer,
+      kind: card.kind,
+      active: card.active,
+      minSpendForBenefits: card.minSpendForBenefits,
+      prevMonthSpend: evaluated.prevSpend,
+      currentMonthSpend: evaluated.spend,
+      performanceMet: evaluated.performanceMet,
+      inGracePeriod: evaluated.inGracePeriod,
+      toRequirement: evaluated.toRequirement,
+      nextTier: evaluated.nextTier,
+      nextTierRemaining: evaluated.nextTierRemaining,
+      totalCap: evaluated.totalCap,
+      benefitUsed: evaluated.totalBenefit,
+      capLeft: evaluated.capLeft,
+      effectiveRate: evaluated.effectiveRate,
+      benefits: evaluated.rows.map((r) => ({
+        id: r.rule.id,
+        categoryId: r.rule.categoryId,
+        categoryLabel:
+          APP_SPENDING_CATEGORIES.find((c) => c.id === r.rule.categoryId)?.label ??
+          r.rule.categoryId,
+        rate: r.rule.rate,
+        monthlyCap: r.rule.monthlyCap,
+        spend: r.spend,
+        appliedBenefit: r.applied,
+        capLeft: r.capLeft,
+        note: r.rule.note ?? null,
+      })),
+      event: eventStatus,
+    })
+  }
+
+  return {
+    month,
+    summary: {
+      totalCards: cards.length,
+      cardsMeetingPerformance: cardsMetCount,
+      totalBenefitSaved,
+    },
+    cards: cardStatuses,
+  }
+}
+
+async function getSpendingPace(householdId: string, monthInput?: string | null) {
+  try {
+    const month = normalizeMonth(monthInput || todayKst().slice(0, 7))
+    const today = todayKst()
+    const range = monthRange(month)
+    const totalDays = Number(range.lastDay)
+
+    let elapsedDays = 0
+    if (today < range.from) {
+      elapsedDays = 0
+    } else if (today > range.to) {
+      elapsedDays = totalDays
+    } else {
+      elapsedDays = Number(today.slice(8, 10))
+    }
+    const remainingDays = Math.max(0, totalDays - elapsedDays)
+    const elapsedPercent = totalDays > 0 ? Math.round((elapsedDays / totalDays) * 1000) / 10 : 0
+
+    const { settings } = await getHouseholdSettings(householdId)
+    const monthlyBudget = settings.monthlyBudget
+    const categoryBudgets = settings.categoryBudgets
+
+    const agg = await monthlyAggregate(householdId, month)
+    const spentSoFar = agg.livingExpense
+    const remainingBudget = monthlyBudget - spentSoFar
+    const budgetUsedPercent = monthlyBudget > 0 ? Math.round((spentSoFar / monthlyBudget) * 1000) / 10 : 0
+
+    const dayProgressRatio = totalDays > 0 ? elapsedDays / totalDays : 0
+    const paceRatio =
+      monthlyBudget > 0 && dayProgressRatio > 0
+        ? Math.round(((spentSoFar / monthlyBudget) / dayProgressRatio) * 100) / 100
+        : 1.0
+
+    const projectedMonthEndSpend =
+      elapsedDays > 0 ? Math.round((spentSoFar / elapsedDays) * totalDays) : spentSoFar
+    const projectedDifference = projectedMonthEndSpend - monthlyBudget
+    const currentDailyAverage = elapsedDays > 0 ? Math.round(spentSoFar / elapsedDays) : 0
+    const recommendedDailyBudget =
+      remainingDays > 0 ? Math.max(0, Math.round(remainingBudget / remainingDays)) : 0
+
+    let status: 'excellent' | 'normal' | 'warning' | 'danger' = 'normal'
+    let statusLabel = '적정 페이스 🟢'
+
+    if (paceRatio <= 0.85) {
+      status = 'excellent'
+      statusLabel = '매우 여유로움 🟢'
+    } else if (paceRatio <= 1.05) {
+      status = 'normal'
+      statusLabel = '적정 페이스 🟢'
+    } else if (paceRatio <= 1.25) {
+      status = 'warning'
+      statusLabel = '주의 요망 🟡'
+    } else {
+      status = 'danger'
+      statusLabel = '예산 초과 위험 🔴'
+    }
+
+    const surgeCategories = []
+    for (const cat of agg.byCategory) {
+      const catId =
+        cat.categoryMajor === '생활비'
+          ? (SHEET_TO_APP_CATEGORY[`${cat.categoryMajor}|${cat.categoryMinor}`] ?? 'etc')
+          : null
+      if (!catId) continue
+
+      const budget = categoryBudgets[catId] ?? 0
+      const spent = cat.amount
+      if (spent <= 0) continue
+
+      const catBudgetPercent = budget > 0 ? Math.round((spent / budget) * 1000) / 10 : null
+      const catPace =
+        budget > 0 && dayProgressRatio > 0
+          ? Math.round(((spent / budget) / dayProgressRatio) * 100) / 100
+          : null
+
+      if (budget > 0 && (spent > budget || (catPace && catPace >= 1.2))) {
+        surgeCategories.push({
+          categoryId: catId,
+          categoryMinor: cat.categoryMinor,
+          budget,
+          spent,
+          budgetUsedPercent: catBudgetPercent,
+          paceRatio: catPace,
+          status: spent > budget ? '초과' : '빠름',
+        })
+      }
+    }
+
+    surgeCategories.sort((a, b) => (b.paceRatio ?? 0) - (a.paceRatio ?? 0))
+
+    const [currYear, currMonth] = month.split('-')
+    const message = `${Number(currMonth)}월 ${elapsedDays}일 기준 생활비 예산 ${won(monthlyBudget)} 중 ${won(spentSoFar)}(${budgetUsedPercent}%)을 사용했습니다. 한 달의 ${elapsedPercent}%가 지난 시점에 페이스는 ${paceRatio}배로 [${statusLabel}] 상태입니다. 현재 추세 유지 시 월말 예상 지출은 ${won(projectedMonthEndSpend)}(예산 대비 ${projectedDifference >= 0 ? '+' : ''}${won(projectedDifference)})입니다. 남은 ${remainingDays}일 동안 일일 권장 지출액은 ${won(recommendedDailyBudget)}입니다.`
+
+    return {
+      month,
+      asOfDate: today,
+      days: {
+        total: totalDays,
+        elapsed: elapsedDays,
+        remaining: remainingDays,
+        elapsedPercent,
+      },
+      budget: {
+        monthlyBudget,
+        spentSoFar,
+        remainingBudget,
+        budgetUsedPercent,
+        currentDailyAverage,
+        recommendedDailyBudget,
+      },
+      pace: {
+        ratio: paceRatio,
+        projectedMonthEndSpend,
+        projectedDifference,
+        status,
+        statusLabel,
+      },
+      surgeCategories,
+      message,
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? `${err.message} (${err.stack})` : String(err)
+    throw new ApiError(500, 'PACE_ERROR', msg)
+  }
+}
+
+async function getFixedExpensesTodayOrPending(
+  householdId: string,
+  targetDateInput?: string | null,
+  targetMonthInput?: string | null,
+  mode: 'today' | 'pending' = 'today',
+) {
+  const targetDate = isDateString(targetDateInput ?? '') ? targetDateInput! : todayKst()
+  const targetMonth = normalizeMonth(targetMonthInput ?? targetDate.slice(0, 7))
+
+  const allFixed = await fixedExpenses(householdId, targetMonth, false)
+  const items = allFixed.items
+
+  const dueToday = []
+  const overdueUnrecorded = []
+  const upcomingThisMonth = []
+  const recordedThisMonth = []
+
+  for (const item of items) {
+    if (!item.active) continue
+
+    if (item.matchedTransactionId) {
+      recordedThisMonth.push(item)
+      continue
+    }
+
+    const cDate = item.candidateDate || item.date
+    if (!cDate) {
+      upcomingThisMonth.push(item)
+      continue
+    }
+
+    if (cDate === targetDate) {
+      dueToday.push(item)
+    } else if (cDate < targetDate) {
+      overdueUnrecorded.push(item)
+    } else {
+      upcomingThisMonth.push(item)
+    }
+  }
+
+  const totalMonthlyFixed = allFixed.total
+  const recordedAmount = recordedThisMonth.reduce((s, i) => s + i.amount, 0)
+  const dueTodayAmount = dueToday.reduce((s, i) => s + i.amount, 0)
+  const overdueAmount = overdueUnrecorded.reduce((s, i) => s + i.amount, 0)
+  const upcomingAmount = upcomingThisMonth.reduce((s, i) => s + i.amount, 0)
+  const remainingAmount = dueTodayAmount + overdueAmount + upcomingAmount
+
+  let message = ''
+  if (dueToday.length > 0 && overdueUnrecorded.length > 0) {
+    message = `오늘 결제 예정인 고정지출이 ${dueToday.length}건(${won(dueTodayAmount)}) 있고, 아직 미기록된 이전 고정지출이 ${overdueUnrecorded.length}건(${won(overdueAmount)}) 있습니다.`
+  } else if (dueToday.length > 0) {
+    const names = dueToday.map((d) => d.name).join(', ')
+    message = `오늘 결제 예정인 고정지출이 ${dueToday.length}건(${names}, 총 ${won(dueTodayAmount)}) 있습니다.`
+  } else if (overdueUnrecorded.length > 0) {
+    const names = overdueUnrecorded.map((d) => d.name).join(', ')
+    message = `예정일이 지났으나 아직 가계부에 미기록된 고정지출이 ${overdueUnrecorded.length}건(${names}, 총 ${won(overdueAmount)}) 있습니다.`
+  } else {
+    message = `오늘 결제 예정이거나 미기록된 고정지출이 없습니다. (남은 이달 예정: ${upcomingThisMonth.length}건, ${won(upcomingAmount)})`
+  }
+
+  return {
+    date: targetDate,
+    month: targetMonth,
+    summary: {
+      totalMonthlyFixed,
+      recordedAmount,
+      remainingAmount,
+      dueTodayCount: dueToday.length,
+      dueTodayAmount,
+      overdueCount: overdueUnrecorded.length,
+      overdueAmount,
+      upcomingCount: upcomingThisMonth.length,
+      upcomingAmount,
+    },
+    dueToday,
+    overdueUnrecorded,
+    upcomingThisMonth,
+    recordedThisMonth,
+    message,
+  }
+}
+
+async function smartParseTransaction(
+  householdId: string,
+  text: string,
+  defaultYear?: number,
+) {
+  if (!text || typeof text !== 'string') {
+    throw new ApiError(400, 'BAD_REQUEST', '파싱할 텍스트(text)를 입력해주세요.')
+  }
+
+  const raw = text.trim()
+  const today = todayKst()
+  const currentYear = defaultYear || Number(today.slice(0, 4))
+
+  let amount = 0
+  const amountMatch =
+    raw.match(/([\d,]+)\s*원/) ||
+    raw.match(/(?:결제|승인|일시불|금액)\s*[:：]?\s*([\d,]+)/)
+  if (amountMatch) {
+    amount = Number(amountMatch[1].replace(/,/g, '')) || 0
+  }
+
+  let parsedDate = today
+  let parsedTime: string | null = null
+  const fullDateMatch = raw.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/)
+  const shortDateMatch = raw.match(/(\d{1,2})[\/\.](\d{1,2})/)
+  const koreanDateMatch = raw.match(/(\d{1,2})월\s*(\d{1,2})일/)
+  const timeMatch = raw.match(/(\d{1,2}):(\d{2})/)
+
+  if (timeMatch) {
+    parsedTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`
+  }
+
+  if (fullDateMatch) {
+    parsedDate = `${fullDateMatch[1]}-${fullDateMatch[2].padStart(2, '0')}-${fullDateMatch[3].padStart(2, '0')}`
+  } else if (shortDateMatch) {
+    parsedDate = `${currentYear}-${shortDateMatch[1].padStart(2, '0')}-${shortDateMatch[2].padStart(2, '0')}`
+  } else if (koreanDateMatch) {
+    parsedDate = `${currentYear}-${koreanDateMatch[1].padStart(2, '0')}-${koreanDateMatch[2].padStart(2, '0')}`
+  } else if (/어제/.test(raw)) {
+    const d = new Date()
+    d.setDate(d.getDate() - 1)
+    parsedDate = d.toISOString().slice(0, 10)
+  }
+
+  let cardRef: string | null = null
+  let paymentMethod = '신용카드'
+
+  if (/체크/.test(raw)) paymentMethod = '체크카드'
+  else if (/간편결제|페이|pay/i.test(raw)) paymentMethod = '간편결제'
+  else if (/계좌|이체/.test(raw)) paymentMethod = '계좌이체'
+
+  const bracketMatch = raw.match(/\[([^\]]+)\]/)
+  const bracketContent = bracketMatch ? bracketMatch[1] : ''
+
+  const cardKeywords = [
+    { key: 'ibk-kpass-credit', match: /ibk|기업은행|k[- ]?패스|케이패스/i },
+    { key: 'shinhan-nara-check', match: /신한.*나라|나라.*신한|신한체크|신한카드|신한/i },
+    { key: 'kb-bonus-check', match: /직장인|보너스|kb국민.*체크|국민체크|국민카드|kb카드/i },
+    { key: 'kb-nara-check', match: /국민.*나라|나라.*국민/i },
+    { key: 'kb-toktok-my-point', match: /톡톡|kb\s*pay|kbpay/i },
+    { key: 'lotte-loca-365', match: /롯데|loca|로카/i },
+    { key: 'mg-plus-s-hana', match: /하나|mg\+|새마을.*하나/i },
+    { key: 'woori-skt', match: /우리.*skt|skt.*우리|우리카드/i },
+    { key: 'mg-honey-check', match: /새마을|꿀카드/i },
+  ]
+
+  for (const ck of cardKeywords) {
+    if (ck.match.test(bracketContent) || ck.match.test(raw)) {
+      cardRef = ck.key
+      break
+    }
+  }
+
+  let matchedCard: Record<string, unknown> | null = null
+  if (cardRef) {
+    try {
+      matchedCard = (await findCard(householdId, cardRef)) as unknown as Record<string, unknown>
+    } catch {
+      // not critical
+    }
+  }
+
+  if (matchedCard) {
+    if (paymentMethod === '신용카드' && matchedCard.kind === 'check') {
+      paymentMethod = '체크카드'
+    }
+  }
+
+  const cleaned = raw
+    .replace(/\[[^\]]+\]/g, ' ')
+    .replace(/웹발신|web발신/gi, ' ')
+    .replace(/\d{4}[-./]\d{1,2}[-./]\d{1,2}/g, ' ')
+    .replace(/\d{1,2}[\/\.]\d{1,2}/g, ' ')
+    .replace(/\d{1,2}월\s*\d{1,2}일/g, ' ')
+    .replace(/\d{1,2}:\d{2}/g, ' ')
+    .replace(/[\d,]+\s*원/g, ' ')
+    .replace(/(?:금액|승인|일시불|결제|취소|누적|잔여|머니\s*결제|완료|고객님|회원님)/g, ' ')
+    .replace(/[가-힣]\*[가-힣]/g, ' ')
+    .replace(/\(\d{1,2}\*\d{1,2}\)/g, ' ')
+    .replace(/[()[\]{}<>,;!]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const words = cleaned
+    .split(' ')
+    .filter((w) => w.length > 1 && !/^(카드|체크|신용|페이|원|건)$/.test(w))
+  const merchant = words[0] || '가맹점 미상'
+
+  const categoryId = inferCategoryFromMerchant(merchant)
+  const categoryLabel = APP_SPENDING_CATEGORIES.find((c) => c.id === categoryId)?.label ?? '기타'
+
+  const { data: dupData } = await db()
+    .from('transactions')
+    .select(
+      'id, date, merchant, amount, effective_amount, category_id, card_id, payment_method, created_at',
+    )
+    .eq('household_id', householdId)
+    .eq('status', 'active')
+    .eq('date', parsedDate)
+
+  const duplicateCandidates = ((dupData ?? []) as Record<string, unknown>[]).filter((t) => {
+    const amt = Number(t.effective_amount ?? t.amount) || 0
+    if (amt !== amount) return false
+    const existingMerchant = String(t.merchant ?? '').toLowerCase()
+    const targetMerchant = merchant.toLowerCase()
+    return (
+      existingMerchant.includes(targetMerchant) ||
+      targetMerchant.includes(existingMerchant) ||
+      (matchedCard && String(t.card_id) === String(matchedCard.id))
+    )
+  })
+
+  const isDuplicateCandidate = duplicateCandidates.length > 0
+  const confidence =
+    amount > 0 && merchant !== '가맹점 미상' ? 'high' : amount > 0 ? 'medium' : 'low'
+
+  return {
+    raw,
+    parsed: {
+      date: parsedDate,
+      time: parsedTime,
+      merchant,
+      amount,
+      categoryId,
+      categoryLabel,
+      type: '생활비',
+      cardId: matchedCard?.id ?? null,
+      cardName: matchedCard?.name ?? null,
+      paymentMethod,
+    },
+    isDuplicateCandidate,
+    duplicateCandidates: duplicateCandidates.map((t) => ({
+      id: t.id,
+      date: t.date,
+      merchant: t.merchant,
+      amount: Number(t.effective_amount ?? t.amount),
+      paymentMethod: t.payment_method,
+      createdAt: t.created_at,
+    })),
+    confidence,
+  }
+}
+
 async function meta(householdId: string) {
   const { data, error } = await db()
     .from('ledger_categories')
@@ -2787,7 +3808,11 @@ async function meta(householdId: string) {
       meta: 'GET /v1/meta',
       budget: 'GET/PATCH/PUT /v1/budget (also supports /v1/budgets)',
       cards: 'GET /v1/cards',
+      cardsRecommend: 'POST /v1/cards/recommend',
+      cardsStatus: 'GET /v1/cards/status?month=YYYY-MM',
+      spendingPace: 'GET /v1/insights/pace?month=YYYY-MM',
       transactions: 'GET/POST /v1/transactions',
+      transactionsSmartParse: 'POST /v1/transactions/smart-parse',
       transaction: 'GET/PATCH/DELETE /v1/transactions/:id',
       cancel: 'POST /v1/transactions/:id/cancel',
       restore: 'POST /v1/transactions/:id/restore',
@@ -2797,6 +3822,8 @@ async function meta(householdId: string) {
       monthly: 'GET /v1/aggregates/monthly?month=YYYY-MM',
       categoriesAggregate: 'GET /v1/aggregates/categories?month=YYYY-MM',
       fixedExpenses: 'GET/POST /v1/fixed-expenses?month=YYYY-MM',
+      fixedExpensesToday: 'GET /v1/fixed-expenses/today?date=YYYY-MM-DD',
+      fixedExpensesPending: 'GET /v1/fixed-expenses/pending?month=YYYY-MM',
       fixedExpense: 'GET/PATCH/DELETE /v1/fixed-expenses/:id',
       fixedExpenseApply: 'POST /v1/fixed-expenses/:id/apply',
       fixedExpenseHistory: 'GET /v1/fixed-expenses/:id/history',
@@ -2847,8 +3874,25 @@ async function handle(req: Request): Promise<Response> {
     if (method === 'PUT') return updateBudget(req, householdId, 'put')
   }
 
+  if (path === '/v1/cards/recommend' && method === 'POST') {
+    const body = normalizeAliases(await readBody(req))
+    return dataResponse(await recommendCards(householdId, body))
+  }
+
+  if (path === '/v1/cards/status' && method === 'GET') {
+    const month = url.searchParams.get('month')
+    return dataResponse(await getCardsStatus(householdId, month))
+  }
+
   if (path === '/v1/cards' && method === 'GET') {
     return dataResponse(await listCards(householdId))
+  }
+
+  if (path === '/v1/transactions/smart-parse' && method === 'POST') {
+    const body = await readBody(req)
+    const text = String(body.text ?? body.message ?? body.raw ?? '')
+    const defaultYear = body.defaultYear ? Number(body.defaultYear) : undefined
+    return dataResponse(await smartParseTransaction(householdId, text, defaultYear))
   }
 
   if (path === '/v1/transactions' && method === 'GET') {
@@ -2930,6 +3974,30 @@ async function handle(req: Request): Promise<Response> {
     if (method === 'POST') {
       return createFixedExpense(req, householdId)
     }
+  }
+
+  if (
+    (path === '/v1/insights/pace' || path === '/v1/pace') &&
+    method === 'GET'
+  ) {
+    const month = url.searchParams.get('month')
+    return dataResponse(await getSpendingPace(householdId, month))
+  }
+
+  if (path === '/v1/fixed-expenses/today' && method === 'GET') {
+    const date = url.searchParams.get('date')
+    const month = url.searchParams.get('month')
+    return dataResponse(
+      await getFixedExpensesTodayOrPending(householdId, date, month, 'today'),
+    )
+  }
+
+  if (path === '/v1/fixed-expenses/pending' && method === 'GET') {
+    const date = url.searchParams.get('date')
+    const month = url.searchParams.get('month')
+    return dataResponse(
+      await getFixedExpensesTodayOrPending(householdId, date, month, 'pending'),
+    )
   }
 
   const fixedExpenseMatch = path.match(
