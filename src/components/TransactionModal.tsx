@@ -642,7 +642,7 @@ export function TransactionModal({
             onChange={(event) => {
               const val = event.target.value
               setMerchant(val)
-              if (!initial && /상품권/i.test(val)) {
+              if (!initial && /상품권|북앤라이프|도서문화|해피머니|컬쳐랜드/i.test(val)) {
                 setCategoryId('giftcard')
                 setExcludeFromSpend(true)
                 setExcluded(false)
@@ -677,6 +677,9 @@ export function TransactionModal({
                   } else if (category.id === 'giftcard') {
                     setExcludeFromSpend(true)
                     setExcluded(false)
+                    if (/포인트리|리브머니/i.test(merchant)) {
+                      setSameDayCashout(true)
+                    }
                   } else if (savingsCategory) {
                     setExcluded(false)
                   }

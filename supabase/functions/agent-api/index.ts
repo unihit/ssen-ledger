@@ -4180,7 +4180,9 @@ async function getUnredeemedGiftCards(householdId: string, monthInput?: string |
         (legacyRedemption
           ? Number(legacyRedemption.effective_amount ?? legacyRedemption.amount) || 0
           : null)
-      const feeAmt = amt > (redeemedAmt ?? 0) ? amt - (redeemedAmt ?? 0) : 0
+      const calc = calculateRedeemedAmount(p as Record<string, unknown>, redeemedAmt ?? undefined)
+      const feeAmt = calc.feeAmount
+      const netProfitLoss = (redeemedAmt ?? amt) - amt
 
       redeemedList.push({
         purchase: item,
@@ -4189,7 +4191,9 @@ async function getUnredeemedGiftCards(householdId: string, monthInput?: string |
           date: redeemedDate,
           merchant: legacyRedemption ? String(legacyRedemption.merchant) : '현금화 완료',
           amount: redeemedAmt ?? amt,
+          faceValue: calc.faceValue,
           feeAmount: feeAmt,
+          netProfitLoss,
           paymentMethod: legacyRedemption?.payment_method
             ? String(legacyRedemption.payment_method)
             : '계좌이체',
@@ -4339,37 +4343,60 @@ async function cashoutAllGiftCards(req: Request, householdId: string) {
 
 async function getGiftCardsHistory(householdId: string, monthInput?: string | null) {
   const giftCardData = await getUnredeemedGiftCards(householdId, monthInput)
+  let totalPurchased = 0
+  let totalCashout = 0
+  let totalFaceValue = 0
+  let totalFee = 0
+
   const items = [
-    ...giftCardData.redeemed.map((r) => ({
-      id: r.purchase.id,
-      date: r.purchase.date,
-      merchant: r.purchase.merchant,
-      cardName: r.purchase.cardName,
-      purchaseAmount: r.purchase.amount,
-      status: 'redeemed',
-      redeemed: true,
-      redeemedAt: r.redemption?.date ?? null,
-      redeemedAmount: r.redemption?.amount ?? null,
-      feeAmount: r.redemption?.feeAmount ?? 0,
-    })),
+    ...giftCardData.redeemed.map((r) => {
+      const pAmt = r.purchase.amount
+      const cAmt = r.redemption?.amount ?? pAmt
+      const fVal = r.redemption?.faceValue ?? pAmt
+      const fAmt = r.redemption?.feeAmount ?? 0
+      totalPurchased += pAmt
+      totalCashout += cAmt
+      totalFaceValue += fVal
+      totalFee += fAmt
+
+      return {
+        id: r.purchase.id,
+        date: r.purchase.date,
+        merchant: r.purchase.merchant,
+        cardName: r.purchase.cardName,
+        purchaseAmount: pAmt,
+        faceValue: fVal,
+        status: 'redeemed',
+        redeemed: true,
+        redeemedAt: r.redemption?.date ?? null,
+        redeemedAmount: cAmt,
+        feeAmount: fAmt,
+        netProfitLoss: r.redemption?.netProfitLoss ?? 0,
+      }
+    }),
     ...giftCardData.unredeemed.map((u) => {
       const calc = calculateRedeemedAmount({
         merchant: u.merchant,
         amount: u.amount,
         effective_amount: u.amount,
       })
+      totalPurchased += u.amount
+      totalFaceValue += calc.faceValue
+
       return {
         id: u.id,
         date: u.date,
         merchant: u.merchant,
         cardName: u.cardName,
         purchaseAmount: u.amount,
+        faceValue: calc.faceValue,
         status: 'unredeemed',
         redeemed: false,
         redeemedAt: null,
         redeemedAmount: null,
         expectedRedeemedAmount: calc.redeemedAmount,
         expectedFeeAmount: calc.feeAmount,
+        netProfitLoss: 0,
       }
     }),
   ]
@@ -4377,7 +4404,16 @@ async function getGiftCardsHistory(householdId: string, monthInput?: string | nu
   items.sort((a, b) => String(b.date).localeCompare(String(a.date)))
 
   return {
-    summary: giftCardData.summary,
+    summary: {
+      totalPurchased,
+      totalCashout,
+      totalFaceValue,
+      totalFee,
+      netProfitLoss: totalCashout - totalPurchased,
+      redeemedCount: giftCardData.summary.redeemedCount,
+      unredeemedCount: giftCardData.summary.unredeemedCount,
+      totalPurchasedCount: giftCardData.summary.totalPurchasedCount,
+    },
     items,
   }
 }

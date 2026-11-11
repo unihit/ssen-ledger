@@ -1143,7 +1143,8 @@ p {
   overflow-x: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  padding-bottom: 1px;
+  padding: 2px 14px 2px 2px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .filters__chips::-webkit-scrollbar {
@@ -1297,6 +1298,12 @@ select:focus {
   color: var(--text);
   font-size: 13px;
   font-weight: 750;
+}
+
+.tx-group__spend--zero {
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .tx-group__savings {

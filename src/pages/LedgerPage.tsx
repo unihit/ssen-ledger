@@ -134,28 +134,46 @@ export function LedgerPage({
     return [...map.entries()]
   }, [filtered])
 
-  const spending = filtered.filter(
-    (transaction) => !isSavingsCategory(transaction.categoryId),
+  const monthTransactions = useMemo(
+    () =>
+      state.transactions.filter((transaction) =>
+        transaction.date.startsWith(month),
+      ),
+    [state.transactions, month],
   )
-  const actualSpending = spending.filter(
-    (transaction) => isLivingExpense(transaction),
+
+  const monthSpending = useMemo(
+    () => monthTransactions.filter((t) => !isSavingsCategory(t.categoryId)),
+    [monthTransactions],
   )
-  const spendExcluded = spending.filter(
-    (transaction) => !isLivingExpense(transaction),
+  const monthActualSpending = useMemo(
+    () => monthSpending.filter((t) => isLivingExpense(t)),
+    [monthSpending],
   )
-  const savings = filtered.filter((transaction) =>
-    isSavingsCategory(transaction.categoryId),
+  const monthSpendExcluded = useMemo(
+    () => monthSpending.filter((t) => !isLivingExpense(t)),
+    [monthSpending],
   )
-  const total = actualSpending.reduce((sum, transaction) => sum + transaction.amount, 0)
-  const spendExcludedTotal = spendExcluded.reduce(
-    (sum, transaction) => sum + transaction.amount,
-    0,
+  const monthSavings = useMemo(
+    () => monthTransactions.filter((t) => isSavingsCategory(t.categoryId)),
+    [monthTransactions],
   )
-  const savingsTotal = savings.reduce(
-    (sum, transaction) => sum + transaction.amount,
-    0,
+  const total = useMemo(
+    () => monthActualSpending.reduce((sum, t) => sum + t.amount, 0),
+    [monthActualSpending],
   )
-  const excludedCount = spending.filter((transaction) => transaction.excluded).length
+  const spendExcludedTotal = useMemo(
+    () => monthSpendExcluded.reduce((sum, t) => sum + t.amount, 0),
+    [monthSpendExcluded],
+  )
+  const savingsTotal = useMemo(
+    () => monthSavings.reduce((sum, t) => sum + t.amount, 0),
+    [monthSavings],
+  )
+  const excludedCount = useMemo(
+    () => monthSpending.filter((t) => t.excluded).length,
+    [monthSpending],
+  )
 
   const fixedItems = fixedExpensesForMonth(fixedExpenses, month)
     .map((fixedExpense) => ({
@@ -189,14 +207,6 @@ export function LedgerPage({
   const fixedSavingsTotal = fixedItems
     .filter((item) => isSavingsFixedExpense(item.fixedExpense))
     .reduce((sum, item) => sum + item.fixedExpense.amount, 0)
-
-  const monthTransactions = useMemo(
-    () =>
-      state.transactions.filter((transaction) =>
-        transaction.date.startsWith(month),
-      ),
-    [state.transactions, month],
-  )
 
   const spendTypeCounts = useMemo(() => {
     let actual = 0
@@ -321,15 +331,19 @@ export function LedgerPage({
         <div className="ledger-summary__grid">
           <div className="ledger-summary__stat">
             <span>결제 건수</span>
-            <strong>{actualSpending.length}건</strong>
+            <strong>{monthActualSpending.length}건</strong>
           </div>
           <div className="ledger-summary__stat">
             <span>건당 평균</span>
             <strong>
-              {won(actualSpending.length ? total / actualSpending.length : 0)}
+              {won(
+                monthActualSpending.length
+                  ? total / monthActualSpending.length
+                  : 0,
+              )}
             </strong>
           </div>
-          {spendExcluded.length > 0 && (
+          {monthSpendExcluded.length > 0 && (
             <div className="ledger-summary__stat ledger-summary__stat--accent">
               <span>실적 채움(지출 제외)</span>
               <strong>{won(spendExcludedTotal)}</strong>
@@ -675,6 +689,13 @@ export function LedgerPage({
             const daySavings = items
               .filter((transaction) => isSavingsCategory(transaction.categoryId))
               .reduce((sum, transaction) => sum + transaction.amount, 0)
+            const dayExcluded = items
+              .filter(
+                (transaction) =>
+                  !isSavingsCategory(transaction.categoryId) &&
+                  !isLivingExpense(transaction),
+              )
+              .reduce((sum, transaction) => sum + transaction.amount, 0)
             const wday = weekdayOf(date)
             const dayToneClass =
               wday === 0 ? ' is-sun' : wday === 6 ? ' is-sat' : ''
@@ -686,11 +707,15 @@ export function LedgerPage({
                     <span className="tx-group__count">{items.length}건</span>
                   </span>
                   <span className="tx-group__sum">
-                    {daySpend > 0 && (
+                    {daySpend > 0 ? (
                       <strong className="tx-group__spend">
                         {won(daySpend)}
                       </strong>
-                    )}
+                    ) : dayExcluded > 0 ? (
+                      <span className="tx-group__spend tx-group__spend--zero">
+                        지출 0원
+                      </span>
+                    ) : null}
                     {daySavings > 0 && (
                       <small className="tx-group__savings">
                         +저축 {won(daySavings)}
