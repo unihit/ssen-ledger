@@ -917,6 +917,7 @@ p {
 
 .filters__selects {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -2488,6 +2489,16 @@ select:focus {
   margin-left: 4px;
 }
 
+.chip__tag--event {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.chip__tag--req {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
 /* ---------- switch ---------- */
 .switch-row {
   position: relative;
@@ -3273,7 +3284,8 @@ select:focus {
 
   .filters__selects {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px;
   }
 
   .card-panel__body {

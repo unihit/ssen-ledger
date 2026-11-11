@@ -18,6 +18,7 @@ import { useApp } from '../store'
 import type { FixedExpense, Transaction } from '../types'
 
 type CardFilter = 'all' | 'cash' | string
+type SpendTypeFilter = 'all' | 'actual' | 'excluded' | 'savings'
 
 export function LedgerPage({
   onAdd,
@@ -42,6 +43,7 @@ export function LedgerPage({
     unlinkedTransactions,
     cloudEnabled,
   } = useApp()
+  const [spendTypeFilter, setSpendTypeFilter] = useState<SpendTypeFilter>('all')
   const [categoryFilter, setCategoryFilter] = useState<'all' | (typeof CATEGORIES)[number]['id']>(
     'all',
   )
@@ -79,6 +81,22 @@ export function LedgerPage({
     const keyword = query.trim().toLowerCase()
     return state.transactions
       .filter((transaction) => transaction.date.startsWith(month))
+      .filter((transaction) => {
+        if (spendTypeFilter === 'all') return true
+        if (spendTypeFilter === 'actual') {
+          return (
+            !isSavingsCategory(transaction.categoryId) &&
+            !isExcludedFromSpend(transaction)
+          )
+        }
+        if (spendTypeFilter === 'excluded') {
+          return isExcludedFromSpend(transaction)
+        }
+        if (spendTypeFilter === 'savings') {
+          return isSavingsCategory(transaction.categoryId)
+        }
+        return true
+      })
       .filter((transaction) =>
         categoryFilter === 'all' ? true : transaction.categoryId === categoryFilter,
       )
@@ -103,7 +121,7 @@ export function LedgerPage({
         if (a.date !== b.date) return a.date < b.date ? 1 : -1
         return a.id < b.id ? 1 : -1
       })
-  }, [state.transactions, month, categoryFilter, cardFilter, query])
+  }, [state.transactions, month, spendTypeFilter, categoryFilter, cardFilter, query])
 
   const groups = useMemo(() => {
     const map = new Map<string, Transaction[]>()
@@ -398,6 +416,18 @@ export function LedgerPage({
           />
         </div>
         <div className="filters__selects">
+          <select
+            value={spendTypeFilter}
+            onChange={(event) =>
+              setSpendTypeFilter(event.target.value as SpendTypeFilter)
+            }
+            aria-label="지출 분류 필터"
+          >
+            <option value="all">전체 지출·저축</option>
+            <option value="actual">실지출만</option>
+            <option value="excluded">실적 채움(지출 제외)만</option>
+            <option value="savings">저축만</option>
+          </select>
           <select
             value={categoryFilter}
             onChange={(event) =>

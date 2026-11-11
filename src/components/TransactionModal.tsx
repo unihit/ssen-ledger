@@ -8,7 +8,7 @@ import {
   paymentMethodOptions,
 } from '../data/paymentMethods'
 import { isExcludedFromSpend } from '../lib/analytics'
-import { recommendCards, sortCards } from '../lib/benefits'
+import { computeCardMonth, recommendCards, sortCards } from '../lib/benefits'
 import { findManualDuplicates } from '../lib/duplicates'
 import { fixedExpenseDueDate } from '../lib/fixedExpenses'
 import { todayISO } from '../lib/date'
@@ -735,6 +735,34 @@ export function TransactionModal({
               </button>
               {sortedCards.map((card) => {
                 const isFav = favoriteCardIds.includes(card.id)
+                const cardMonth = computeCardMonth(card, state.transactions, month)
+                const cardEvent = card.event
+                let eventBadge: string | null = null
+                if (cardEvent) {
+                  const eventTxs = state.transactions.filter(
+                    (t) =>
+                      t.cardId === card.id &&
+                      t.date >= '2026-11-01' &&
+                      t.date <= cardEvent.deadline &&
+                      !t.excluded &&
+                      t.amount > 0,
+                  )
+                  const eventTotal = eventTxs.reduce((sum, t) => sum + t.amount, 0)
+                  const minSp = cardEvent.minSimplePayAmount ?? 10_000
+                  const hasSp = cardEvent.requireSimplePay
+                    ? eventTxs.some((t) => t.paymentMethod === '간편결제' && t.amount >= minSp)
+                    : true
+                  if (eventTotal < cardEvent.targetAmount || !hasSp) {
+                    eventBadge = '이벤트'
+                  }
+                }
+                const reqBadge =
+                  !cardMonth.inGracePeriod &&
+                  card.minSpendForBenefits > 0 &&
+                  cardMonth.toRequirement > 0
+                    ? '실적 채움'
+                    : null
+
                 return (
                   <button
                     key={card.id}
@@ -753,6 +781,16 @@ export function TransactionModal({
                     />
                     {isFav && <span className="chip__fav-star" title="즐겨찾기">⭐</span>}
                     {card.name}
+                    {eventBadge && (
+                      <span className="chip__tag chip__tag--event">
+                        {eventBadge}
+                      </span>
+                    )}
+                    {!eventBadge && reqBadge && (
+                      <span className="chip__tag chip__tag--req">
+                        {reqBadge}
+                      </span>
+                    )}
                     {!card.active && ' (숨김)'}
                   </button>
                 )

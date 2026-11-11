@@ -55,6 +55,67 @@ export function HomePage({
   const cardMonths = cards.map((card) => computeCardMonth(card, state.transactions, month))
   const benefit = cardMonths.reduce((total, item) => total + item.totalBenefit, 0)
 
+  const cardAlerts: { tone: 'good' | 'warn' | 'info'; title: string; body: string }[] = []
+
+  // 신규 카드 이벤트 추적 알림
+  const today = todayISO()
+  cards
+    .filter((card) => card.event)
+    .forEach((card) => {
+      const cardEvent = card.event!
+      const eventTransactions = state.transactions.filter(
+        (t) =>
+          t.cardId === card.id &&
+          t.date >= '2026-11-01' &&
+          t.date <= cardEvent.deadline &&
+          !t.excluded &&
+          t.amount > 0,
+      )
+      const eventTotalSpend = eventTransactions.reduce(
+        (sum, t) => sum + t.amount,
+        0,
+      )
+      const minSimplePay = cardEvent.minSimplePayAmount ?? 10_000
+      const hasSimplePayMet = cardEvent.requireSimplePay
+        ? eventTransactions.some(
+            (t) => t.paymentMethod === '간편결제' && t.amount >= minSimplePay,
+          )
+        : true
+      const eventAmountMet = eventTotalSpend >= cardEvent.targetAmount
+      const eventAllMet = eventAmountMet && hasSimplePayMet
+
+      const targetDate = new Date(`${cardEvent.deadline}T23:59:59`)
+      const now = new Date(`${today}T00:00:00`)
+      const diffDays = Math.ceil(
+        (targetDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
+      )
+      const dDayLabel = diffDays <= 0 ? 'D-Day' : `D-${diffDays}`
+
+      if (!eventAllMet) {
+        const remaining = Math.max(0, cardEvent.targetAmount - eventTotalSpend)
+        cardAlerts.push({
+          tone: diffDays <= 15 ? 'warn' : 'info',
+          title: `🎁 [${card.name}] ${cardEvent.title} (${dDayLabel})`,
+          body:
+            remaining > 0
+              ? `${won(remaining)} 더 쓰면 달성!${
+                  cardEvent.requireSimplePay
+                    ? hasSimplePayMet
+                      ? ' · 간편결제 조건 충족'
+                      : ' · ⚠️ 간편결제 1만원 이상 1건 필요'
+                    : ''
+                }`
+              : `목표 금액(${won(cardEvent.targetAmount)}) 달성! ⚠️ 간편결제 1만원 이상 1건만 결제하면 완료돼요.`,
+        })
+      } else {
+        cardAlerts.push({
+          tone: 'good',
+          title: `🎁 [${card.name}] 이벤트 조건 달성 완료!`,
+          body: `${cardEvent.title} 목표 금액(${won(cardEvent.targetAmount)})과 간편결제 조건을 모두 완료했어요.`,
+        })
+      }
+    })
+
   const closestRequirement = [...cardMonths]
     .filter(
       (item) =>
@@ -65,10 +126,13 @@ export function HomePage({
     .sort((a, b) => a.toRequirement - b.toRequirement)[0]
 
   const pausedCard = [...cardMonths]
-    .filter((item) => item.card.minSpendForBenefits > 0 && !item.performanceMet)
+    .filter(
+      (item) =>
+        item.card.minSpendForBenefits > 0 &&
+        !item.performanceMet &&
+        !item.inGracePeriod,
+    )
     .sort((a, b) => b.spend - a.spend)[0]
-
-  const cardAlerts: { tone: 'good' | 'warn' | 'info'; title: string; body: string }[] = []
 
   if (closestRequirement) {
     cardAlerts.push({

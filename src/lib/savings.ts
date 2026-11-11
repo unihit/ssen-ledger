@@ -15,12 +15,19 @@ export const SAVINGS_SHEET = {
 export function withSavingsDefaults(transaction: Transaction): Transaction {
   if (!isSavingsCategory(transaction.categoryId)) return transaction
 
+  const isIrp =
+    /IRP|연금/i.test(transaction.merchant) ||
+    /IRP|연금/i.test(transaction.memo ?? '')
+  const minor = isIrp
+    ? 'IRP·연금'
+    : transaction.categoryMinor || SAVINGS_SHEET.categoryMinor
+
   return {
     ...transaction,
     excluded: true,
     cardId: null,
     categoryMajor: SAVINGS_SHEET.categoryMajor,
-    categoryMinor: SAVINGS_SHEET.categoryMinor,
+    categoryMinor: minor,
     categoryGroup: SAVINGS_SHEET.categoryGroup,
     paymentMethod: transaction.paymentMethod ?? '계좌이체',
   }
