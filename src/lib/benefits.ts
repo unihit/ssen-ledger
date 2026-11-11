@@ -2,6 +2,7 @@ import { categoryOf } from '../data/categories'
 import type {
   BenefitRule,
   Card,
+  CardSortMode,
   CategoryId,
   PerformanceTier,
   Transaction,
@@ -341,4 +342,109 @@ export function totalBenefit(cards: Card[], transactions: Transaction[], month: 
 
 export function activeCards(cards: Card[]): Card[] {
   return cards.filter((card) => card.active)
+}
+
+export function sortCards(
+  cards: Card[],
+  transactions: Transaction[],
+  month: string,
+  options?: {
+    mode?: CardSortMode
+    favoriteCardIds?: string[]
+  },
+): Card[] {
+  const mode = options?.mode ?? 'requirement'
+  const favorites = new Set(options?.favoriteCardIds ?? [])
+
+  const metrics = new Map<
+    string,
+    {
+      spend: number
+      toRequirement: number
+      nextTierRemaining: number
+      minSpend: number
+    }
+  >()
+
+  for (const card of cards) {
+    const cardMonth = computeCardMonth(card, transactions, month)
+    metrics.set(card.id, {
+      spend: cardMonth.spend,
+      toRequirement: cardMonth.toRequirement,
+      nextTierRemaining: cardMonth.nextTierRemaining,
+      minSpend: card.minSpendForBenefits,
+    })
+  }
+
+  return [...cards].sort((a, b) => {
+    // 1. 활성 카드가 비활성(숨김) 카드보다 항상 앞
+    if (a.active !== b.active) return a.active ? -1 : 1
+
+    // 2. 즐겨찾기 카드가 일반 카드보다 항상 앞
+    const aFav = favorites.has(a.id)
+    const bFav = favorites.has(b.id)
+    if (aFav !== bFav) return aFav ? -1 : 1
+
+    // 3. 선택된 모드에 따른 정렬
+    const aMeta = metrics.get(a.id) ?? {
+      spend: 0,
+      toRequirement: 0,
+      nextTierRemaining: 0,
+      minSpend: 0,
+    }
+    const bMeta = metrics.get(b.id) ?? {
+      spend: 0,
+      toRequirement: 0,
+      nextTierRemaining: 0,
+      minSpend: 0,
+    }
+
+    if (mode === 'spend') {
+      // 결제 많은 순: 이번 달 결제액(spend) 내림차순
+      if (bMeta.spend !== aMeta.spend) return bMeta.spend - aMeta.spend
+      return a.name.localeCompare(b.name, 'ko')
+    }
+
+    if (mode === 'requirement') {
+      // 실적 임박순:
+      // (1) 실적 조건이 있으면서 아직 미충족인 카드 중 남은 금액이 적은 순 (toRequirement 오름차순)
+      // (2) 실적 조건이 있으면서 다음 티어가 남아있는 카드 (nextTierRemaining 오름차순)
+      // (3) 기본 실적을 충족한 카드
+      // (4) 실적 조건이 없는 카드 (minSpend === 0)
+      const aNeeds = aMeta.minSpend > 0 && aMeta.toRequirement > 0
+      const bNeeds = bMeta.minSpend > 0 && bMeta.toRequirement > 0
+
+      if (aNeeds && bNeeds) {
+        if (aMeta.toRequirement !== bMeta.toRequirement) {
+          return aMeta.toRequirement - bMeta.toRequirement
+        }
+      } else if (aNeeds !== bNeeds) {
+        return aNeeds ? -1 : 1
+      } else {
+        const aHasCond = aMeta.minSpend > 0
+        const bHasCond = bMeta.minSpend > 0
+
+        if (aHasCond && bHasCond) {
+          const aNext = aMeta.nextTierRemaining > 0
+          const bNext = bMeta.nextTierRemaining > 0
+          if (aNext && bNext) {
+            if (aMeta.nextTierRemaining !== bMeta.nextTierRemaining) {
+              return aMeta.nextTierRemaining - bMeta.nextTierRemaining
+            }
+          } else if (aNext !== bNext) {
+            return aNext ? -1 : 1
+          }
+        } else if (aHasCond !== bHasCond) {
+          return aHasCond ? -1 : 1
+        }
+      }
+
+      // 동률이면 결제액 많은 순, 그 다음 이름순
+      if (bMeta.spend !== aMeta.spend) return bMeta.spend - aMeta.spend
+      return a.name.localeCompare(b.name, 'ko')
+    }
+
+    // default: 가나다 이름순
+    return a.name.localeCompare(b.name, 'ko')
+  })
 }

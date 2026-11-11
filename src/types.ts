@@ -168,12 +168,18 @@ export interface FixedExpenseApplication {
   amount: number
 }
 
+export type CardSortMode = 'requirement' | 'spend' | 'default'
+
 export interface Settings {
   monthlyIncome: number
   monthlyBudget: number
   /** 월 저축 목표 */
   monthlyGoal: number
   categoryBudgets: Partial<Record<CategoryId, number>>
+  /** 즐겨찾기(우선 고정) 카드 ID 목록 */
+  favoriteCardIds?: string[]
+  /** 카드 정렬 모드: 'requirement' (실적 임박순) | 'spend' (결제 많은 순) | 'default' (기본순) */
+  cardSortMode?: CardSortMode
 }
 
 export interface AppState {

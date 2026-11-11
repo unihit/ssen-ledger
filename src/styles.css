@@ -1115,6 +1115,71 @@ select:focus {
   color: var(--text-2);
 }
 
+/* ---------- card sort bar ---------- */
+.card-sort-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 2px 0 2px;
+}
+
+.card-sort-bar__tabs {
+  display: inline-flex;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface);
+}
+
+.sort-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sort-tab:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.sort-tab.is-active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 750;
+  box-shadow: 0 4px 12px rgba(49, 130, 246, 0.28);
+}
+
+.card-sort-bar__info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.card-sort-bar__fav-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fff8e6;
+  color: #c47a00;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .cards-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1163,6 +1228,40 @@ select:focus {
   font-weight: 600;
   letter-spacing: 0.13em;
   opacity: 0.8;
+}
+
+.card-visual__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-visual__fav-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: -6px -6px -6px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  transition: all 0.18s ease;
+  backdrop-filter: blur(4px);
+}
+
+.card-visual__fav-btn:hover {
+  background: rgba(255, 255, 255, 0.34);
+  color: #fff;
+  transform: scale(1.1);
+}
+
+.card-visual__fav-btn.is-active {
+  background: rgba(255, 225, 60, 0.3);
+  color: #ffd700;
+  filter: drop-shadow(0 0 6px rgba(255, 215, 0, 0.6));
 }
 
 .card-visual__name {
@@ -2362,6 +2461,15 @@ select:focus {
   font-size: 11.5px;
 }
 
+.chip--fav {
+  border-color: #ffd875;
+}
+
+.chip__fav-star {
+  font-size: 11px;
+  line-height: 1;
+}
+
 .chip__dot {
   width: 8px;
   height: 8px;
@@ -3072,6 +3180,29 @@ select:focus {
   .home-grid,
   .report-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .card-sort-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .card-sort-bar__tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sort-tab {
+    justify-content: center;
+    padding: 7px 6px;
+    font-size: 11.5px;
+  }
+
+  .card-sort-bar__info {
+    justify-content: space-between;
+    padding: 0 4px;
+    font-size: 11px;
   }
 
   .insights {

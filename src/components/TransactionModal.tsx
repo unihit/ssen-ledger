@@ -8,7 +8,7 @@ import {
   paymentMethodOptions,
 } from '../data/paymentMethods'
 import { isExcludedFromSpend } from '../lib/analytics'
-import { recommendCards } from '../lib/benefits'
+import { recommendCards, sortCards } from '../lib/benefits'
 import { findManualDuplicates } from '../lib/duplicates'
 import { fixedExpenseDueDate } from '../lib/fixedExpenses'
 import { todayISO } from '../lib/date'
@@ -70,6 +70,19 @@ export function TransactionModal({
     initial?.cardId ?? fixedExpense?.cardId ?? null,
   )
   const selectedCard = state.cards.find((card) => card.id === cardId)
+  const favoriteCardIds = useMemo(
+    () => state.settings.favoriteCardIds ?? [],
+    [state.settings.favoriteCardIds],
+  )
+  const sortMode = state.settings.cardSortMode ?? 'requirement'
+  const sortedCards = useMemo(
+    () =>
+      sortCards(state.cards, state.transactions, month, {
+        mode: sortMode,
+        favoriteCardIds,
+      }),
+    [state.cards, state.transactions, month, sortMode, favoriteCardIds],
+  )
   const [paymentMethod, setPaymentMethod] = useState<string>(() => {
     if (initial?.paymentMethod) return initial.paymentMethod
     if (fixedExpense?.paymentMethod) return fixedExpense.paymentMethod
@@ -720,26 +733,30 @@ export function TransactionModal({
                 <Icon name="wallet" size={16} />
                 {paymentMethod === '간편결제' ? '페이머니 (카드 없음)' : '현금·계좌'}
               </button>
-              {state.cards.map((card) => (
-                <button
-                  key={card.id}
-                  type="button"
-                  className={`chip${cardId === card.id ? ' is-active' : ''}`}
-                  onClick={() => handleCardChange(card.id)}
-                  style={
-                    cardId === card.id
-                      ? { borderColor: card.colorFrom, background: `${card.colorFrom}14` }
-                      : undefined
-                  }
-                >
-                  <span
-                    className="chip__dot"
-                    style={{ background: `linear-gradient(135deg, ${card.colorFrom}, ${card.colorTo})` }}
-                  />
-                  {card.name}
-                  {!card.active && ' (숨김)'}
-                </button>
-              ))}
+              {sortedCards.map((card) => {
+                const isFav = favoriteCardIds.includes(card.id)
+                return (
+                  <button
+                    key={card.id}
+                    type="button"
+                    className={`chip${cardId === card.id ? ' is-active' : ''}${isFav ? ' chip--fav' : ''}`}
+                    onClick={() => handleCardChange(card.id)}
+                    style={
+                      cardId === card.id
+                        ? { borderColor: card.colorFrom, background: `${card.colorFrom}14` }
+                        : undefined
+                    }
+                  >
+                    <span
+                      className="chip__dot"
+                      style={{ background: `linear-gradient(135deg, ${card.colorFrom}, ${card.colorTo})` }}
+                    />
+                    {isFav && <span className="chip__fav-star" title="즐겨찾기">⭐</span>}
+                    {card.name}
+                    {!card.active && ' (숨김)'}
+                  </button>
+                )
+              })}
             </div>
           </div>
         ) : null}

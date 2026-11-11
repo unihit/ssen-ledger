@@ -39,6 +39,7 @@ import { supabase } from './lib/supabase'
 import type {
   AppState,
   Card,
+  CardSortMode,
   CategoryId,
   FixedExpense,
   FixedExpenseApplication,
@@ -223,6 +224,8 @@ interface AppContextValue {
   updateCard: (card: Card) => void
   deleteCard: (id: string) => void
   toggleCard: (id: string) => void
+  toggleFavoriteCard: (id: string) => void
+  setCardSortMode: (mode: CardSortMode) => void
   addFixedExpense: (fixedExpense: FixedExpense) => void
   updateFixedExpense: (fixedExpense: FixedExpense) => void
   deleteFixedExpense: (id: string) => void
@@ -750,6 +753,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [householdId, push],
   )
 
+  const toggleFavoriteCard = useCallback(
+    (id: string) => {
+      const currentFavorites = stateRef.current.settings.favoriteCardIds ?? []
+      const nextFavorites = currentFavorites.includes(id)
+        ? currentFavorites.filter((favId) => favId !== id)
+        : [...currentFavorites, id]
+      updateSettings({ favoriteCardIds: nextFavorites })
+    },
+    [updateSettings],
+  )
+
+  const setCardSortMode = useCallback(
+    (mode: CardSortMode) => {
+      updateSettings({ cardSortMode: mode })
+    },
+    [updateSettings],
+  )
+
   const addFixedExpense = useCallback(
     (fixedExpense: FixedExpense) => {
       setFixedExpenses((current) => [fixedExpense, ...current])
@@ -1275,6 +1296,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateCard,
       deleteCard,
       toggleCard,
+      toggleFavoriteCard,
+      setCardSortMode,
       addFixedExpense,
       updateFixedExpense,
       deleteFixedExpense,
@@ -1304,6 +1327,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateCard,
       deleteCard,
       toggleCard,
+      toggleFavoriteCard,
+      setCardSortMode,
       addFixedExpense,
       updateFixedExpense,
       deleteFixedExpense,

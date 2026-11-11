@@ -19,6 +19,8 @@ export type IconName =
   | 'wallet'
   | 'chevronDown'
   | 'chevronUp'
+  | 'star'
+  | 'starFilled'
 
 const PATHS: Record<IconName, ReactNode> = {
   home: (
@@ -58,6 +60,15 @@ const PATHS: Record<IconName, ReactNode> = {
   ),
   chevronDown: <path d="M6 9l6 6 6-6" />,
   chevronUp: <path d="M18 15l-6-6-6 6" />,
+  star: (
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+  ),
+  starFilled: (
+    <polygon
+      points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+      fill="currentColor"
+    />
+  ),
 }
 
 export function Icon({

@@ -633,4 +633,6 @@ export const DEFAULT_SETTINGS: Settings = {
     education: 45_000,
     etc: 110_000,
   },
+  favoriteCardIds: [],
+  cardSortMode: 'requirement',
 }

@@ -3,17 +3,29 @@ import { CardEditModal } from '../components/CardEditModal'
 import { Icon } from '../components/Icon'
 import { Badge, EmptyState, Progress } from '../components/ui'
 import { SPENDING_CATEGORIES, categoryOf } from '../data/categories'
-import { computeCardMonth, recommendCards } from '../lib/benefits'
+import { computeCardMonth, recommendCards, sortCards } from '../lib/benefits'
 import { ratePercent, won, wonShort } from '../lib/format'
 import { useApp } from '../store'
-import type { Card, CategoryId } from '../types'
+import type { Card, CardSortMode, CategoryId } from '../types'
 
 export function CardsPage() {
-  const { state, month, toggleCard } = useApp()
+  const { state, month, toggleCard, toggleFavoriteCard, setCardSortMode } = useApp()
   const [recCategory, setRecCategory] = useState<CategoryId>('food')
   const [recPaymentMethod, setRecPaymentMethod] = useState<'card' | 'simplepay'>('card')
   const [recAmount, setRecAmount] = useState('30000')
   const [editor, setEditor] = useState<{ card?: Card } | null>(null)
+
+  const sortMode: CardSortMode = state.settings.cardSortMode ?? 'requirement'
+  const favoriteCardIds = state.settings.favoriteCardIds ?? []
+
+  const sortedCards = useMemo(
+    () =>
+      sortCards(state.cards, state.transactions, month, {
+        mode: sortMode,
+        favoriteCardIds,
+      }),
+    [state.cards, state.transactions, month, sortMode, favoriteCardIds],
+  )
 
   const numericAmount = Number(recAmount.replace(/[^\d]/g, '')) || 0
   const recommendations = useMemo(
@@ -142,8 +154,42 @@ export function CardsPage() {
           />
         </section>
       ) : (
-        <div className="cards-grid">
-          {state.cards.map((card) => {
+        <>
+          <div className="card-sort-bar">
+            <div className="card-sort-bar__tabs" role="tablist" aria-label="카드 정렬 순서">
+              <button
+                type="button"
+                className={`sort-tab${sortMode === 'requirement' ? ' is-active' : ''}`}
+                onClick={() => setCardSortMode('requirement')}
+                role="tab"
+                aria-selected={sortMode === 'requirement'}
+              >
+                <Icon name="sparkles" size={13} />
+                <span>실적 임박순</span>
+              </button>
+              <button
+                type="button"
+                className={`sort-tab${sortMode === 'spend' ? ' is-active' : ''}`}
+                onClick={() => setCardSortMode('spend')}
+                role="tab"
+                aria-selected={sortMode === 'spend'}
+              >
+                <Icon name="card" size={13} />
+                <span>결제 많은 순</span>
+              </button>
+            </div>
+            <div className="card-sort-bar__info">
+              {favoriteCardIds.length > 0 && (
+                <span className="card-sort-bar__fav-count">
+                  ⭐ 즐겨찾기 {favoriteCardIds.length}장
+                </span>
+              )}
+              <span>총 {state.cards.length}장</span>
+            </div>
+          </div>
+
+          <div className="cards-grid">
+            {sortedCards.map((card) => {
           const cardMonth = computeCardMonth(card, state.transactions, month)
           const usageMap = new Map(cardMonth.rows.map((row) => [row.rule.id, row]))
           const target = card.minSpendForBenefits
@@ -176,6 +222,7 @@ export function CardsPage() {
             ? eventTotalSpend >= cardEvent.targetAmount
             : false
           const eventAllMet = eventAmountMet && hasSimplePayMet
+          const isFavorite = favoriteCardIds.includes(card.id)
 
           return (
             <article
@@ -190,7 +237,24 @@ export function CardsPage() {
               >
                 <div className="card-visual__top">
                   <span>{card.issuer}</span>
-                  <span>{card.kind === 'check' ? 'CHECK' : 'CREDIT'}</span>
+                  <div className="card-visual__actions">
+                    <span>{card.kind === 'check' ? 'CHECK' : 'CREDIT'}</span>
+                    <button
+                      type="button"
+                      className={`card-visual__fav-btn${isFavorite ? ' is-active' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleFavoriteCard(card.id)
+                      }}
+                      aria-label={isFavorite ? '즐겨찾기 해제' : '즐겨찾기 고정'}
+                      title={isFavorite ? '즐겨찾기 해제' : '즐겨찾기 고정'}
+                    >
+                      <Icon
+                        name={isFavorite ? 'starFilled' : 'star'}
+                        size={16}
+                      />
+                    </button>
+                  </div>
                 </div>
                 <span className="card-visual__name">{card.name}</span>
                 <div className="card-visual__bottom">
@@ -202,6 +266,9 @@ export function CardsPage() {
 
               <div className="card-panel__body">
                 <div className="card-panel__status">
+                  {isFavorite && (
+                    <Badge tone="accent">⭐ 즐겨찾기</Badge>
+                  )}
                   <Badge
                     tone={
                       cardMonth.inGracePeriod
@@ -381,7 +448,8 @@ export function CardsPage() {
             </article>
           )
         })}
-        </div>
+          </div>
+        </>
       )}
 
       <p className="panel__note panel__note--standalone">
