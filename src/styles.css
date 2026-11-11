@@ -3800,7 +3800,7 @@ select:focus {
 
 @media (max-width: 640px) {
   .budget-inputs {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
   }
 
@@ -3813,20 +3813,22 @@ select:focus {
 
   .budget-input__label {
     gap: 4px;
+    min-width: 0;
   }
 
   .budget-input__name {
-    font-size: 12px;
+    font-size: 11.5px;
+    letter-spacing: -0.02em;
     white-space: nowrap;
   }
 
   .budget-input__control input {
-    width: 50px;
+    width: 46px;
     font-size: 12px;
   }
 
   .budget-input__control input:focus {
-    width: 58px;
+    width: 54px;
   }
 
   .budget-summary-bar__actions {
@@ -3841,9 +3843,44 @@ select:focus {
   }
 }
 
-@media (max-width: 340px) {
+@media (max-width: 480px) {
   .budget-inputs {
     grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .budget-input {
+    padding: 8px 12px;
+    min-height: 42px;
+    gap: 8px;
+    border-radius: 12px;
+  }
+
+  .budget-input__label {
+    gap: 8px;
+    font-size: 13px;
+  }
+
+  .budget-input__emoji {
+    font-size: 15px;
+  }
+
+  .budget-input__name {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: normal;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
+
+  .budget-input__control input {
+    width: 75px;
+    font-size: 13.5px;
+  }
+
+  .budget-input__control input:focus {
+    width: 85px;
   }
 }
 

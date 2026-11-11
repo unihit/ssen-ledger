@@ -298,18 +298,21 @@ class ApiError extends Error {
   status: number
   code: string
   fields?: Record<string, string>
+  details?: Record<string, unknown>
 
   constructor(
     status: number,
     code: string,
     message: string,
     fields?: Record<string, string>,
+    details?: Record<string, unknown>,
   ) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
     this.fields = fields
+    this.details = details
   }
 }
 
@@ -394,6 +397,7 @@ function errorResponse(error: ApiError) {
         code: error.code,
         message: error.message,
         ...(error.fields ? { fields: error.fields } : {}),
+        ...(error.details ? error.details : {}),
       },
     },
     error.status,
@@ -1035,6 +1039,11 @@ function toApiTransaction(row: Record<string, unknown>) {
     (typeof row.merchant === 'string' && /문화상품권/i.test(row.merchant)) ||
     (typeof row.memo === 'string' && /문화상품권/i.test(row.memo))
 
+  const rawNote = String(row.note ?? '')
+  const linkMatch = rawNote.match(/\[linked_tx:([^\]]+)\]/)
+  const linkedTransactionId = linkMatch ? linkMatch[1] : null
+  const cleanNote = rawNote.replace(/\[linked_tx:[^\]]+\]\s*/g, '').trim()
+
   return {
     id: row.id,
     date: row.date,
@@ -1049,7 +1058,8 @@ function toApiTransaction(row: Record<string, unknown>) {
     effectiveAmount: effectiveAmount(row),
     merchant: row.merchant ?? '',
     memo: row.memo ?? '',
-    note: row.note ?? '',
+    note: cleanNote,
+    linkedTransactionId,
     paymentMethod: row.payment_method ?? null,
     cardId: row.card_id ?? null,
     status: row.status ?? 'active',
@@ -1104,6 +1114,51 @@ async function createTransaction(req: Request, householdId: string) {
     householdId,
     input,
   )
+
+  const force = Boolean(body.force || body.allowDuplicate)
+  if (!force) {
+    const { data: dupData } = await db()
+      .from('transactions')
+      .select(
+        'id, date, merchant, amount, effective_amount, category_id, card_id, payment_method, created_at',
+      )
+      .eq('household_id', householdId)
+      .eq('status', 'active')
+      .eq('date', input.date)
+
+    const duplicateCandidates = ((dupData ?? []) as Record<string, unknown>[]).filter((t) => {
+      const amt = Number(t.effective_amount ?? t.amount) || 0
+      if (amt !== input.amount) return false
+      const existingMerchant = String(t.merchant ?? '').toLowerCase()
+      const targetMerchant = input.merchant.toLowerCase()
+      return (
+        existingMerchant.includes(targetMerchant) ||
+        targetMerchant.includes(existingMerchant) ||
+        (cardId && String(t.card_id) === String(cardId))
+      )
+    })
+
+    if (duplicateCandidates.length > 0) {
+      throw new ApiError(
+        409,
+        'DUPLICATE_CANDIDATE',
+        `동일한 일자(${input.date}) 및 금액(${won(input.amount)})의 거래 내역(${duplicateCandidates[0].merchant})이 이미 존재합니다. 중복 입력을 강제하려면 force: true (또는 allowDuplicate: true)를 전달해주세요.`,
+        undefined,
+        {
+          isDuplicateCandidate: true,
+          duplicateCandidates: duplicateCandidates.map((t) => ({
+            id: t.id,
+            date: t.date,
+            merchant: t.merchant,
+            amount: Number(t.effective_amount ?? t.amount),
+            paymentMethod: t.payment_method,
+            createdAt: t.created_at,
+          })),
+        },
+      )
+    }
+  }
+
   const appCategory = appCategoryId(input.categoryMajor, input.categoryMinor)
   const savings = appCategory === 'savings'
   const normalizedPaymentMethod = savings
@@ -1137,6 +1192,13 @@ async function createTransaction(req: Request, householdId: string) {
       ? input.excluded
       : savings || (input.categoryMajor !== '생활비' && !isSpendExcluded)
 
+  const rawLinked =
+    body.linkedTransactionId || body.linked_transaction_id || body.giftCardPurchaseId
+  let noteToStore = input.note || ''
+  if (rawLinked && typeof rawLinked === 'string') {
+    noteToStore = noteToStore ? `${noteToStore} [linked_tx:${rawLinked}]` : `[linked_tx:${rawLinked}]`
+  }
+
   const payload = {
     household_id: householdId,
     id: input.id ?? crypto.randomUUID(),
@@ -1152,7 +1214,7 @@ async function createTransaction(req: Request, householdId: string) {
     category_group: effectiveCategoryGroup,
     correction: input.correction,
     payment_method: normalizedPaymentMethod,
-    note: input.note,
+    note: noteToStore,
     status: 'active',
     source: input.source ?? 'muse',
     created_by: 'muse',
@@ -2862,6 +2924,8 @@ function inferCategoryFromMerchant(merchant: string): string {
   if (/배달의민족|배민|요기요|쿠팡이츠|땡겨요/i.test(m)) return 'delivery'
   if (/스타벅스|스벅|이디야|투썸|메가커피|메가mgc|컴포즈|빽다방|파스쿠찌|폴바셋|공차|커피|카페/i.test(m)) return 'cafe'
   if (/gs25|cu|세븐일레븐|이마트24|미니스톱|이마트|홈플러스|롯데마트|트레이더스|코스트코|하나로마트|편의점|마트|슈퍼/i.test(m)) return 'mart'
+  if (/아이깨끗해|세제|비누|샴푸|생필품|다이소|휴지|치약|칫솔|세탁|바디워시/i.test(m)) return 'living'
+  if (/상품권|해피머니|북앤라이프|도서문화상품권|도서문화|컬쳐랜드/i.test(m)) return 'giftcard'
   if (/버스|지하철|티머니|코레일|ktx|srt|고속버스|카카오t|카카오택시|타다|택시|교통|대중교통/i.test(m)) return 'transport'
   if (/쿠팡|네이버쇼핑|무신사|29cm|올리브영|지그재그|에이블리|11번가|g마켓|옥션|백화점|아울렛/i.test(m)) return 'shopping'
   if (/식당|맥도날드|버거킹|맘스터치|롯데리아|서브웨이|아웃백|빕스|김밥|식사|한식|일식|중식|치킨|피자|갈비|고기|순대국|짜장|교촌|bbq|bhc/i.test(m)) return 'food'
@@ -3324,6 +3388,33 @@ async function getCardsStatus(householdId: string, monthInput?: string | null) {
   if (txError) throw dbError(txError)
   const transactions = (txData ?? []) as Record<string, unknown>[]
 
+  // 고정지출 중 아직 결제되지 않은 이달 예정분을 카드별로 집계
+  const fixedForMonth = await fixedExpenses(householdId, month, false)
+  const pendingFixedByCard = new Map<
+    string,
+    Array<{
+      id: string
+      name: string
+      amount: number
+      dayOfMonth: number
+      candidateDate?: string | null
+    }>
+  >()
+
+  for (const item of fixedForMonth.items) {
+    if (!item.active || item.matchedTransactionId) continue
+    if (!item.cardId) continue
+    const list = pendingFixedByCard.get(String(item.cardId)) ?? []
+    list.push({
+      id: String(item.id),
+      name: item.name,
+      amount: item.amount,
+      dayOfMonth: item.dayOfMonth,
+      candidateDate: item.candidateDate || null,
+    })
+    pendingFixedByCard.set(String(item.cardId), list)
+  }
+
   const eventCards = cards.filter((c) => c.event)
   let allEventTxs: Record<string, unknown>[] = []
   if (eventCards.length > 0) {
@@ -3344,6 +3435,16 @@ async function getCardsStatus(householdId: string, monthInput?: string | null) {
     const evaluated = computeCardMonthEdge(card, transactions, month)
     totalBenefitSaved += evaluated.totalBenefit
     if (evaluated.performanceMet) cardsMetCount++
+
+    const pendingFixedItems = pendingFixedByCard.get(card.id) ?? []
+    const pendingFixedExpensesSpend = pendingFixedItems.reduce(
+      (sum, item) => sum + item.amount,
+      0,
+    )
+    const projectedMonthEndSpend = evaluated.spend + pendingFixedExpensesSpend
+    const projectedToRequirement = Math.max(0, card.minSpendForBenefits - projectedMonthEndSpend)
+    const projectedPerformanceMet =
+      evaluated.inGracePeriod || projectedMonthEndSpend >= card.minSpendForBenefits
 
     let eventStatus: Record<string, unknown> | null = null
     if (card.event) {
@@ -3391,9 +3492,14 @@ async function getCardsStatus(householdId: string, monthInput?: string | null) {
       minSpendForBenefits: card.minSpendForBenefits,
       prevMonthSpend: evaluated.prevSpend,
       currentMonthSpend: evaluated.spend,
+      pendingFixedExpensesSpend,
+      projectedMonthEndSpend,
       performanceMet: evaluated.performanceMet,
+      projectedPerformanceMet,
       inGracePeriod: evaluated.inGracePeriod,
       toRequirement: evaluated.toRequirement,
+      projectedToRequirement,
+      pendingFixedExpenses: pendingFixedItems,
       nextTier: evaluated.nextTier,
       nextTierRemaining: evaluated.nextTierRemaining,
       totalCap: evaluated.totalCap,
@@ -3422,6 +3528,7 @@ async function getCardsStatus(householdId: string, monthInput?: string | null) {
     summary: {
       totalCards: cards.length,
       cardsMeetingPerformance: cardsMetCount,
+      cardsProjectedMeetingPerformance: cardStatuses.filter((c) => c.projectedPerformanceMet).length,
       totalBenefitSaved,
     },
     cards: cardStatuses,
@@ -3706,13 +3813,13 @@ async function smartParseTransaction(
 
   const cardKeywords = [
     { key: 'ibk-kpass-credit', match: /ibk|기업은행|k[- ]?패스|케이패스/i },
-    { key: 'shinhan-nara-check', match: /신한.*나라|나라.*신한|신한체크|신한카드|신한/i },
-    { key: 'kb-bonus-check', match: /직장인|보너스|kb국민.*체크|국민체크|국민카드|kb카드/i },
-    { key: 'kb-nara-check', match: /국민.*나라|나라.*국민/i },
+    { key: 'shinhan-nara-check', match: /신한.*나라|나라.*신한|신한나라/i },
+    { key: 'kb-nara-check', match: /국민.*나라|나라.*국민|kb.*나라|나라.*kb|kb나라|국민나라/i },
     { key: 'kb-toktok-my-point', match: /톡톡|kb\s*pay|kbpay/i },
+    { key: 'kb-bonus-check', match: /직장인|보너스|kb국민.*체크|국민체크|국민카드|kb카드/i },
     { key: 'lotte-loca-365', match: /롯데|loca|로카/i },
-    { key: 'mg-plus-s-hana', match: /하나|mg\+|새마을.*하나/i },
-    { key: 'woori-skt', match: /우리.*skt|skt.*우리|우리카드/i },
+    { key: 'mg-plus-s-hana', match: /하나|mg\+|새마을.*하나|플러스s/i },
+    { key: 'woori-skt', match: /우리.*skt|skt.*우리/i },
     { key: 'mg-honey-check', match: /새마을|꿀카드/i },
   ]
 
@@ -3761,11 +3868,24 @@ async function smartParseTransaction(
   const words = cleaned
     .split(' ')
     .filter((w) => w.length > 1 && !/^(카드|체크|신용|페이|원|건)$/.test(w))
-  const merchant = words[0] || '가맹점 미상'
+  let rawMerchant = words[0] || '가맹점 미상'
+  let merchant = rawMerchant.replace(/(?:에서부터|에서|으로|에게|로|에|의)$/, '').trim()
+  if (!merchant) merchant = rawMerchant
 
-  const inferredCategoryId = inferCategoryFromMerchant(merchant)
+  let inferredCategoryId = inferCategoryFromMerchant(merchant)
+  // 쿠팡, 네이버쇼핑 등 종합몰 결제일 때 본문에 상품명(아이깨끗해, 세제, 커피, 배달 등)이 들어있으면 해당 카테고리를 우선 적용
+  if (inferredCategoryId === 'shopping' || inferredCategoryId === 'etc') {
+    const detailCat = inferCategoryFromMerchant(raw)
+    if (detailCat !== 'etc' && detailCat !== 'shopping') {
+      inferredCategoryId = detailCat
+    }
+  }
   const categoryId = options?.categoryId || inferredCategoryId
   const categoryLabel = APP_SPENDING_CATEGORIES.find((c) => c.id === categoryId)?.label ?? '기타'
+  const sheetCat = APP_CATEGORY_TO_SHEET[categoryId] ?? {
+    major: '생활비',
+    minor: '기타',
+  }
 
   const { data: dupData } = await db()
     .from('transactions')
@@ -3861,7 +3981,9 @@ async function smartParseTransaction(
       amount,
       categoryId,
       categoryLabel,
-      type: '생활비',
+      categoryMajor: sheetCat.major,
+      categoryMinor: sheetCat.minor,
+      type: sheetCat.major,
       cardId: matchedCard?.id ?? null,
       cardName: matchedCard?.name ?? null,
       paymentMethod,
@@ -3880,6 +4002,410 @@ async function smartParseTransaction(
     requiresConfirmation,
     createdTransaction,
     message,
+  }
+}
+
+async function getUnredeemedGiftCards(householdId: string, monthInput?: string | null) {
+  const { data: txData, error: txError } = await db()
+    .from('transactions')
+    .select(
+      'id, date, merchant, amount, effective_amount, category_major, category_minor, category_group, category_id, card_id, payment_method, note, memo, status, created_at',
+    )
+    .eq('household_id', householdId)
+    .eq('status', 'active')
+    .order('date', { ascending: false })
+
+  if (txError) throw dbError(txError)
+  const allTxs = (txData ?? []) as Record<string, unknown>[]
+
+  // 1. [linked_tx:<purchaseId>] 태그가 붙은 현금화(환급) 거래 매핑
+  const redemptionsByPurchaseId = new Map<string, Record<string, unknown>>()
+  for (const t of allTxs) {
+    const noteStr = String(t.note ?? '')
+    const match = noteStr.match(/\[linked_tx:([^\]]+)\]/)
+    if (match) {
+      redemptionsByPurchaseId.set(match[1], t)
+    }
+  }
+
+  // 2. 상품권 구매 거래 식별 (단, 환급/현금화/수입 거래는 제외)
+  const purchases = allTxs.filter((t) => {
+    const major = String(t.category_major ?? '')
+    const minor = String(t.category_minor ?? '')
+    const catId = String(t.category_id ?? '')
+    const merch = String(t.merchant ?? '')
+
+    if (major === '수입' || major === '투자회수') return false
+    if (/현금화|환급|페이즈.*입금/i.test(merch)) return false
+
+    return (
+      minor === '상품권' ||
+      catId === 'giftcard' ||
+      /상품권|북앤라이프|도서문화|해피머니|컬쳐랜드/i.test(merch)
+    )
+  })
+
+  const filteredPurchases = monthInput
+    ? purchases.filter((p) => String(p.date).startsWith(monthInput))
+    : purchases
+
+  const unredeemedList = []
+  const redeemedList = []
+  const cardsList = await listCards(householdId)
+  const cardMap = new Map(cardsList.map((c) => [c.id, c.name]))
+
+  for (const p of filteredPurchases) {
+    const pid = String(p.id)
+    const redemption = redemptionsByPurchaseId.get(pid)
+    const cardName = p.card_id ? (cardMap.get(String(p.card_id)) ?? String(p.card_id)) : null
+    const amt = Number(p.effective_amount ?? p.amount) || 0
+
+    const item = {
+      id: pid,
+      date: String(p.date),
+      merchant: String(p.merchant),
+      amount: amt,
+      cardId: p.card_id ? String(p.card_id) : null,
+      cardName,
+      paymentMethod: p.payment_method ? String(p.payment_method) : null,
+      memo: String(p.memo ?? ''),
+      createdAt: p.created_at,
+    }
+
+    if (redemption) {
+      redeemedList.push({
+        purchase: item,
+        redemption: {
+          id: String(redemption.id),
+          date: String(redemption.date),
+          merchant: String(redemption.merchant),
+          amount: Number(redemption.effective_amount ?? redemption.amount) || 0,
+          paymentMethod: redemption.payment_method ? String(redemption.payment_method) : null,
+          createdAt: redemption.created_at,
+        },
+      })
+    } else {
+      unredeemedList.push(item)
+    }
+  }
+
+  const unredeemedAmount = unredeemedList.reduce((sum, i) => sum + i.amount, 0)
+  const redeemedAmount = redeemedList.reduce((sum, i) => sum + i.purchase.amount, 0)
+
+  return {
+    summary: {
+      totalPurchasedCount: filteredPurchases.length,
+      totalPurchasedAmount: unredeemedAmount + redeemedAmount,
+      unredeemedCount: unredeemedList.length,
+      unredeemedAmount,
+      redeemedCount: redeemedList.length,
+      redeemedAmount,
+    },
+    unredeemed: unredeemedList,
+    redeemed: redeemedList,
+  }
+}
+
+async function cashoutGiftCard(req: Request, householdId: string) {
+  const body = await readBody(req)
+  const purchaseId = String(
+    body.purchaseTransactionId || body.purchaseId || body.linkedTransactionId || '',
+  ).trim()
+  if (!purchaseId) {
+    throw new ApiError(
+      400,
+      'BAD_REQUEST',
+      '현금화할 원본 상품권 구매 거래 ID(purchaseTransactionId)가 필요합니다.',
+    )
+  }
+
+  const { data: purchase, error: pError } = await db()
+    .from('transactions')
+    .select('*')
+    .eq('household_id', householdId)
+    .eq('id', purchaseId)
+    .maybeSingle()
+
+  if (pError) throw dbError(pError)
+  if (!purchase) {
+    throw new ApiError(404, 'NOT_FOUND', `구매 거래 ID(${purchaseId})를 찾을 수 없습니다.`)
+  }
+
+  const today = todayKst()
+  const date = isDateString(String(body.date ?? '')) ? String(body.date) : today
+  const purchaseAmount = Number(purchase.effective_amount ?? purchase.amount) || 0
+  const amount = typeof body.amount === 'number' && body.amount > 0 ? body.amount : purchaseAmount
+  const merchant = String(body.merchant || `상품권 현금화 (${purchase.merchant ?? '페이즈'})`)
+  const memo = String(body.memo || `${purchase.merchant ?? '상품권'} 현금화 완료`)
+  const paymentMethod = String(body.paymentMethod || '계좌이체')
+
+  const note = `[linked_tx:${purchaseId}] ${body.note ?? ''}`.trim()
+
+  const payload = {
+    household_id: householdId,
+    id: crypto.randomUUID(),
+    date,
+    merchant,
+    amount,
+    category_id: 'etc',
+    card_id: null,
+    memo,
+    excluded: true,
+    category_major: '투자회수',
+    category_minor: '기타투자',
+    category_group: '집계 제외',
+    correction: 0,
+    payment_method: paymentMethod,
+    note,
+    status: 'active',
+    source: 'muse',
+    created_by: 'muse',
+    updated_by: 'muse',
+  }
+
+  const { data: inserted, error: iError } = await db()
+    .from('transactions')
+    .insert(payload)
+    .select('*')
+    .single()
+
+  if (iError) throw dbError(iError)
+
+  const annotated = await annotateSingle(inserted as Record<string, unknown>)
+  return dataResponse(
+    {
+      redeemed: true,
+      purchaseTransaction: toApiTransaction(purchase as Record<string, unknown>),
+      redemptionTransaction: toApiTransaction(annotated),
+      message: `${purchase.merchant} (${won(amount)}) 현금화 거래가 성공적으로 연결 등록되었습니다.`,
+    },
+    201,
+  )
+}
+
+async function getInsightsAttention(householdId: string, monthInput?: string | null) {
+  try {
+    const month = normalizeMonth(monthInput || todayKst().slice(0, 7))
+    const today = todayKst()
+
+    // 1. 고정지출 당일 및 미기록 건
+    const fixedData = await getFixedExpensesTodayOrPending(householdId, today, month, 'today')
+    const dueToday = fixedData.dueToday || []
+    const overdue = fixedData.overdueUnrecorded || []
+
+    // 2. 카드 실적 현황 (고정지출 예정분 반영)
+    const cardsData = await getCardsStatus(householdId, month)
+    const cards = cardsData.cards || []
+
+    const atRiskCards = cards.filter(
+      (c) =>
+        c.active &&
+        !c.inGracePeriod &&
+        c.minSpendForBenefits > 0 &&
+        !c.projectedPerformanceMet,
+    )
+
+    const eventCardsNeedingAttention = cards
+      .filter((c) => c.active && c.event && !c.event.isCompleted)
+      .map((c) => ({
+        cardId: c.id,
+        cardName: c.name,
+        event: c.event,
+      }))
+
+    // 3. 페이스 급증/초과 카테고리
+    const paceData = await getSpendingPace(householdId, month)
+    const surgeCategories = paceData.surgeCategories || []
+
+    // 4. 미현금화 상품권
+    const giftCardsData = await getUnredeemedGiftCards(householdId, month)
+    const unredeemedCount = giftCardsData.summary.unredeemedCount || 0
+    const unredeemedAmount = giftCardsData.summary.unredeemedAmount || 0
+
+    const attentionCount =
+      dueToday.length +
+      overdue.length +
+      atRiskCards.length +
+      eventCardsNeedingAttention.length +
+      surgeCategories.length +
+      (unredeemedCount > 0 ? 1 : 0)
+
+    // 한 줄 요약 brief 생성
+    const briefParts: string[] = []
+    if (dueToday.length > 0) {
+      briefParts.push(`오늘 결제 예정 고정지출 ${dueToday.length}건(${won(fixedData.summary.dueTodayAmount)})`)
+    }
+    if (overdue.length > 0) {
+      briefParts.push(`미기록 고정지출 ${overdue.length}건(${won(fixedData.summary.overdueAmount)})`)
+    }
+    if (atRiskCards.length > 0) {
+      const cardNames = atRiskCards
+        .map((c) => `${c.name}(${won(c.projectedToRequirement)} 부족)`)
+        .join(', ')
+      briefParts.push(`실적 달성 필요 카드: ${cardNames}`)
+    }
+    if (surgeCategories.length > 0) {
+      const catNames = surgeCategories.map((s) => s.categoryMinor).join(', ')
+      briefParts.push(`예산 초과·주의 카테고리(${catNames})`)
+    }
+    if (unredeemedCount > 0) {
+      briefParts.push(`미현금화 상품권 ${unredeemedCount}건(${won(unredeemedAmount)})`)
+    }
+
+    let brief = ''
+    if (briefParts.length > 0) {
+      brief = `현재 신경 써야 할 항목이 ${attentionCount}건 있습니다: ${briefParts.join(' / ')}.`
+    } else {
+      brief = `현재 긴급히 신경 써야 할 지출이나 실적 마감 건이 없습니다. (예산 사용률 ${paceData.budget.budgetUsedPercent}%)`
+    }
+
+    return {
+      date: today,
+      month,
+      attentionCount,
+      urgent: dueToday.length > 0 || overdue.length > 0,
+      brief,
+      fixedExpenses: {
+        dueTodayCount: dueToday.length,
+        dueTodayAmount: fixedData.summary.dueTodayAmount,
+        dueToday: dueToday.map((i) => ({
+          id: i.id,
+          name: i.name,
+          amount: i.amount,
+          dayOfMonth: i.dayOfMonth,
+          cardId: i.cardId,
+        })),
+        overdueCount: overdue.length,
+        overdueAmount: fixedData.summary.overdueAmount,
+        overdue: overdue.map((i) => ({
+          id: i.id,
+          name: i.name,
+          amount: i.amount,
+          dayOfMonth: i.dayOfMonth,
+          cardId: i.cardId,
+        })),
+      },
+      cards: {
+        atRiskCount: atRiskCards.length,
+        atRiskCards: atRiskCards.map((c) => ({
+          id: c.id,
+          name: c.name,
+          minSpendForBenefits: c.minSpendForBenefits,
+          currentMonthSpend: c.currentMonthSpend,
+          pendingFixedExpensesSpend: c.pendingFixedExpensesSpend,
+          projectedMonthEndSpend: c.projectedMonthEndSpend,
+          projectedToRequirement: c.projectedToRequirement,
+          pendingFixedExpenses: c.pendingFixedExpenses,
+        })),
+        events: eventCardsNeedingAttention,
+      },
+      budget: {
+        surgeCount: surgeCategories.length,
+        surgeCategories,
+      },
+      giftCards: {
+        unredeemedCount,
+        unredeemedAmount,
+      },
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? `${err.message} (${err.stack})` : String(err)
+    throw new ApiError(500, 'ATTENTION_ERROR', msg)
+  }
+}
+
+async function getDashboard(householdId: string, monthInput?: string | null) {
+  try {
+    const month = normalizeMonth(monthInput || todayKst().slice(0, 7))
+    const today = todayKst()
+
+    const [budgetRes, cardsData, paceData, fixedData, attentionData, giftCardsData] =
+      await Promise.all([
+        getHouseholdSettings(householdId),
+        getCardsStatus(householdId, month),
+        getSpendingPace(householdId, month),
+        getFixedExpensesTodayOrPending(householdId, today, month, 'today'),
+        getInsightsAttention(householdId, month),
+        getUnredeemedGiftCards(householdId, month),
+      ])
+
+    const { settings } = budgetRes
+
+    return {
+      month,
+      today,
+      budget: {
+        monthlyIncome: settings.monthlyIncome,
+        monthlyBudget: settings.monthlyBudget,
+        monthlyGoal: settings.monthlyGoal,
+        spent: paceData.budget.spentSoFar,
+        remaining: paceData.budget.remainingBudget,
+        budgetUsedPercent: paceData.budget.budgetUsedPercent,
+        projectedMonthEndSpend: paceData.pace.projectedMonthEndSpend,
+        status: paceData.pace.status,
+        recommendedDailyBudget: paceData.budget.recommendedDailyBudget,
+      },
+      cards: {
+        summary: cardsData.summary,
+        list: cardsData.cards.map((c) => ({
+          id: c.id,
+          name: c.name,
+          issuer: c.issuer,
+          kind: c.kind,
+          minSpendForBenefits: c.minSpendForBenefits,
+          currentSpend: c.currentMonthSpend,
+          pendingFixedSpend: c.pendingFixedExpensesSpend,
+          projectedSpend: c.projectedMonthEndSpend,
+          toRequirement: c.toRequirement,
+          projectedToRequirement: c.projectedToRequirement,
+          performanceMet: c.performanceMet,
+          projectedPerformanceMet: c.projectedPerformanceMet,
+          inGracePeriod: c.inGracePeriod,
+          benefitUsed: c.benefitUsed,
+          capLeft: c.capLeft,
+          event: c.event,
+          pendingFixedExpenses: c.pendingFixedExpenses,
+        })),
+      },
+      fixedExpenses: {
+        totalMonthlyFixed: fixedData.summary.totalMonthlyFixed,
+        recordedAmount: fixedData.summary.recordedAmount,
+        remainingAmount: fixedData.summary.remainingAmount,
+        dueTodayCount: fixedData.summary.dueTodayCount,
+        dueTodayAmount: fixedData.summary.dueTodayAmount,
+        overdueCount: fixedData.summary.overdueCount,
+        overdueAmount: fixedData.summary.overdueAmount,
+        upcomingCount: fixedData.summary.upcomingCount,
+        upcomingAmount: fixedData.summary.upcomingAmount,
+        dueToday: fixedData.dueToday,
+        overdue: fixedData.overdueUnrecorded,
+        upcoming: fixedData.upcomingThisMonth,
+      },
+      pace: {
+        daysElapsed: paceData.days.elapsed,
+        daysTotal: paceData.days.total,
+        daysRemaining: paceData.days.remaining,
+        dayProgressRatio:
+          paceData.days.total > 0
+            ? Math.round((paceData.days.elapsed / paceData.days.total) * 100) / 100
+            : 0,
+        surgeCategories: paceData.surgeCategories,
+        message: paceData.message,
+      },
+      giftCards: {
+        unredeemedCount: giftCardsData.summary.unredeemedCount,
+        unredeemedAmount: giftCardsData.summary.unredeemedAmount,
+        unredeemed: giftCardsData.unredeemed.slice(0, 5),
+      },
+      attention: {
+        attentionCount: attentionData.attentionCount,
+        urgent: attentionData.urgent,
+        brief: attentionData.brief,
+      },
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? `${err.message} (${err.stack})` : String(err)
+    throw new ApiError(500, 'DASHBOARD_ERROR', msg)
   }
 }
 
@@ -3914,6 +4440,10 @@ async function meta(householdId: string) {
       recordRule: row.record_rule,
     })),
     endpoints: {
+      dashboard: 'GET /v1/dashboard?month=YYYY-MM',
+      insightsAttention: 'GET /v1/insights/attention?month=YYYY-MM',
+      giftCardsUnredeemed: 'GET /v1/giftcards/unredeemed?month=YYYY-MM',
+      giftCardsCashout: 'POST /v1/giftcards/cashout',
       health: 'GET /v1/health',
       meta: 'GET /v1/meta',
       budget: 'GET/PATCH/PUT /v1/budget (also supports /v1/budgets)',
@@ -3972,6 +4502,28 @@ async function handle(req: Request): Promise<Response> {
 
   if (path === '/v1/meta' && method === 'GET') {
     return dataResponse(await meta(householdId))
+  }
+
+  if (path === '/v1/dashboard' && method === 'GET') {
+    const month = url.searchParams.get('month')
+    return dataResponse(await getDashboard(householdId, month))
+  }
+
+  if (
+    (path === '/v1/insights/attention' || path === '/v1/attention') &&
+    method === 'GET'
+  ) {
+    const month = url.searchParams.get('month')
+    return dataResponse(await getInsightsAttention(householdId, month))
+  }
+
+  if (path === '/v1/giftcards/unredeemed' && method === 'GET') {
+    const month = url.searchParams.get('month')
+    return dataResponse(await getUnredeemedGiftCards(householdId, month))
+  }
+
+  if (path === '/v1/giftcards/cashout' && method === 'POST') {
+    return cashoutGiftCard(req, householdId)
   }
 
   if (

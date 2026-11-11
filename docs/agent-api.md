@@ -1058,3 +1058,167 @@ curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/transa
 ```
 MUSE는 `requiresConfirmation: true`일 때만 사용자에게 "동일한 결제 내역이 이미 있는데 추가할까요?"라고 묻고, 사용자가 승인하면 `"force": true`를 전달하여 등록할 수 있습니다.
 
+---
+
+## 15. MUSE 피드백 반영 핵심 강화 엔드포인트
+
+MUSE(AI Agent)의 실제 사용 경험과 피드백을 바탕으로 추가/강화된 핵심 API입니다.
+
+### 15-1. 올인원 대시보드 요약 (`GET /v1/dashboard?month=YYYY-MM`)
+기존에 `budget`, `cards/status`, `pace`, `fixed-expenses/pending`, `insights/attention`, `giftcards/unredeemed`를 각각 따로 호출하던 것을 **단 1회의 호출**로 통합하여 토큰 소모와 왕복 지연시간을 획기적으로 줄였습니다.
+
+```bash
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/dashboard?month=2026-11" \
+  -H "Authorization: Bearer $AGENT_API_KEY"
+```
+
+#### 응답 주요 구조
+```json
+{
+  "data": {
+    "month": "2026-11",
+    "today": "2026-11-11",
+    "budget": {
+      "monthlyIncome": 2800000,
+      "monthlyBudget": 900000,
+      "monthlyGoal": 1900000,
+      "spent": 230185,
+      "remaining": 669815,
+      "budgetUsedPercent": 25.6,
+      "projectedMonthEndSpend": 627777,
+      "status": "excellent",
+      "recommendedDailyBudget": 35253
+    },
+    "cards": {
+      "summary": {
+        "totalCards": 9,
+        "cardsMeetingPerformance": 7,
+        "cardsProjectedMeetingPerformance": 3,
+        "totalBenefitSaved": 7263
+      },
+      "list": [
+        {
+          "id": "mg-plus-s-hana",
+          "name": "MG+ S 하나카드",
+          "minSpendForBenefits": 300000,
+          "currentSpend": 13482,
+          "pendingFixedSpend": 7300,
+          "projectedSpend": 20782,
+          "projectedToRequirement": 279218,
+          "projectedPerformanceMet": false,
+          "pendingFixedExpenses": [
+            { "name": "제미나이 프로", "amount": 7300, "dayOfMonth": 24 }
+          ]
+        }
+      ]
+    },
+    "fixedExpenses": {
+      "totalMonthlyFixed": 663470,
+      "recordedAmount": 599900,
+      "remainingAmount": 63570,
+      "dueTodayCount": 0,
+      "overdueCount": 0,
+      "upcomingCount": 2,
+      "upcomingAmount": 63570
+    },
+    "pace": {
+      "daysElapsed": 11,
+      "daysTotal": 30,
+      "daysRemaining": 19,
+      "dayProgressRatio": 0.37,
+      "surgeCategories": [],
+      "message": "현재 지출 페이스가 매우 안정적입니다. 일일 권장 지출은 35,253원입니다."
+    },
+    "giftCards": {
+      "unredeemedCount": 9,
+      "unredeemedAmount": 559400
+    },
+    "attention": {
+      "attentionCount": 11,
+      "urgent": false,
+      "brief": "현재 신경 써야 할 항목이 11건 있습니다: 실적 달성 필요 카드: ... / 예산 주의: ... / 미현금화 상품권 9건(559,400원)."
+    }
+  }
+}
+```
+
+---
+
+### 15-2. "지금 신경 써야 할 것" 브리프 (`GET /v1/insights/attention?month=YYYY-MM`)
+대화 시작 시나 현황 브리핑 시 바로 읽어줄 수 있는 **자연어 한 줄 요약(`brief`)**과 함께 오늘 결제 예정 고정지출, 미기록 고정지출, 실적 미달 위험 카드, 예산 초과 카테고리, 미현금화 상품권을 한 번에 제공합니다.
+
+```bash
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/insights/attention?month=2026-11" \
+  -H "Authorization: Bearer $AGENT_API_KEY"
+```
+
+- `data.brief`: 즉시 사용자에게 말해줄 수 있는 자연어 브리프
+- `data.urgent`: 당일 또는 연체된 고정지출이 있을 때 `true`
+- `data.fixedExpenses`: 오늘/미기록 고정지출 목록
+- `data.cards.atRiskCards`: 실적 미달 위기 카드 목록 (남은 필요 금액 및 예정 고정지출 포함)
+- `data.budget.surgeCategories`: 예산 속도 초과 카테고리 목록
+- `data.giftCards`: 미현금화 상품권 건수 및 총액
+
+---
+
+### 15-3. 카드 실적 "고정지출 예정분 포함 예상 합계" (`GET /v1/cards/status`)
+기존에는 실제 확정 거래액(`currentMonthSpend`)만 나와서, 에이전트나 사용자가 아직 결제일이 도래하지 않은 고정지출(예: MG+ S 하나카드의 제미나이 프로 7,300원, 보험료 56,270원 등)을 일일이 암산해야 했습니다.
+
+이제 `GET /v1/cards/status` 응답의 각 카드 객체에 다음 예측 필드가 기본 제공됩니다:
+- `pendingFixedExpensesSpend`: 이번 달 아직 청구되지 않은 고정지출 합계
+- `projectedMonthEndSpend`: `currentMonthSpend + pendingFixedExpensesSpend` (예상 월말 실적)
+- `projectedToRequirement`: 목표 실적까지 실제로 더 써야 하는 남은 금액
+- `projectedPerformanceMet`: 예정 고정지출 반영 시 실적 충족 여부
+- `pendingFixedExpenses`: 해당 카드로 결제 예정인 고정지출 상세 목록
+
+---
+
+### 15-4. `POST /v1/transactions` 중복 거래 경고 (409 Conflict)
+사용자가 메인 채팅과 가계부 전용 채팅 양쪽에 같은 지출을 언급할 때 이중 입력되는 사고를 원천 방지합니다.
+
+- 동일 일자(`date`) + 동일 금액(`amount`) + 유사 가맹점 또는 카드 결제 건이 이미 존재할 경우:
+  - 기본적으로 **`409 Conflict` (에러 코드 `DUPLICATE_CANDIDATE`)**를 반환합니다.
+  - 에러 본문의 `details.duplicateCandidates`에 기존 중복 거래 내역이 담깁니다.
+- **강제 등록 방법**: 사용자가 명시적으로 중복 입력이 맞다고 확인해 주었을 때는 요청 body에 `"force": true` (또는 `"allowDuplicate": true`)를 전달하면 중복 검사를 건너뛰고 바로 등록됩니다.
+
+---
+
+### 15-5. 상품권 구매 및 페이즈 현금화 연결 추적
+상테크(상품권 재테크) 시 북앤라이프·도서문화상품권 등을 구매하고 페이즈 등에서 현금화할 때, 미현금화 잔여분을 추적하고 현금화 거래와 원본 구매를 상호 연결합니다.
+
+#### 1) 미현금화 상품권 목록 조회
+```bash
+curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/giftcards/unredeemed?month=2026-11" \
+  -H "Authorization: Bearer $AGENT_API_KEY"
+```
+- `data.unredeemed`: 아직 현금화 거래가 연결되지 않은 상품권 구매 거래 목록
+- `data.summary.unredeemedCount`, `data.summary.unredeemedAmount`: 미현금화 건수 및 총액
+
+#### 2) 현금화 거래 등록 및 연결
+```bash
+curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/giftcards/cashout" \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -H "Content-Type: application/json; charset=utf-8" \
+  -d '{
+    "purchaseTransactionId": "<원본 상품권 구매 거래 UUID>",
+    "amount": 46000,
+    "date": "2026-11-11",
+    "merchant": "페이즈 현금화",
+    "paymentMethod": "계좌이체"
+  }'
+```
+- 현금화 거래 생성 시 내부적으로 비고(`note`)에 `[linked_tx:<purchaseId>]` 메타데이터 태그를 기록하여 원본 구매 건과 양방향 매핑됩니다.
+- 거래 조회(`GET /v1/transactions`) 시 `linkedTransactionId` 필드가 자동으로 추출되어 반환됩니다.
+
+---
+
+### 15-6. `smart-parse` 자연어 인식 및 분류 고도화
+1. **체크카드 ID 직접 매핑**:
+   - `"KB나라사랑체크"`, `"국민나라사랑체크"`, `"신한나라사랑체크"` 등을 단순 체크카드 결제수단이 아닌 가계부 등록 카드 ID(`kb-nara-check`, `shinhan-nara-check` 등)로 직접 정밀 매칭합니다.
+2. **가맹점 한국어 조사 자동 정제**:
+   - `"쿠팡에서"`, `"스타벅스로"`, `"배민에게"` 등의 문장에서 `"에서"`, `"으로"`, `"로"`, `"에게"`, `"에"` 조사를 말끔히 제거하여 정식 가맹점명(`쿠팡`, `스타벅스`)으로 추출합니다.
+3. **품목 기반 카테고리 우선 판별**:
+   - 쿠팡이나 네이버쇼핑 등 종합몰 결제라도 `"아이깨끗해"`, `"세제"`, `"비누"`, `"샴푸"`, `"치약"` 등의 생필품 키워드가 포함되어 있으면 쇼핑(`shopping`) 대신 생활(`living`)로 정확히 분류합니다.
+   - 응답 객체에 `categoryId: "living"`뿐만 아니라 시트/장부 분류인 `categoryMajor: "생활비"`, `categoryMinor: "생활"`을 함께 반환하여 즉시 활용할 수 있습니다.
+
+
