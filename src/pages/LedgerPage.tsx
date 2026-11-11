@@ -628,6 +628,7 @@ export function LedgerPage({
                   {items.map((transaction) => {
                     const category = categoryOf(transaction.categoryId)
                     const savings = isSavingsCategory(transaction.categoryId)
+                    const isExcluded = !savings && !isLivingExpense(transaction)
                     const displayName =
                       transaction.merchant?.trim() ||
                       transaction.memo?.trim() ||
@@ -678,7 +679,7 @@ export function LedgerPage({
                                 )}
                                 {savings ? (
                                   <Badge tone="success">저축</Badge>
-                                ) : isExcludedFromSpend(transaction) ? (
+                                ) : isExcluded ? (
                                   <Badge tone="accent">
                                     <span className="badge__full">
                                       지출 제외 · 실적 인정
@@ -712,7 +713,13 @@ export function LedgerPage({
                             </span>
                           </span>
                           <span
-                            className={`tx__amount${savings ? ' tx__amount--savings' : ''}`}
+                            className={`tx__amount${
+                              savings
+                                ? ' tx__amount--savings'
+                                : isExcluded
+                                  ? ' tx__amount--excluded'
+                                  : ''
+                            }`}
                           >
                             {savings ? '+' : ''}
                             {won(transaction.amount)}

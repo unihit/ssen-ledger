@@ -877,6 +877,10 @@ p {
   color: var(--success);
 }
 
+.tx__amount--excluded {
+  color: var(--accent);
+}
+
 .panel > .tx-list > li:last-child .tx {
   padding-bottom: 2px;
 }

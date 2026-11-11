@@ -9,6 +9,7 @@ import {
   budgetSummary,
   categoryBudgetRows,
   categorySlices,
+  isLivingExpense,
   monthTransactions,
 } from '../lib/analytics'
 import { computeCardMonth } from '../lib/benefits'
@@ -545,6 +546,7 @@ export function HomePage({
             {recent.map((transaction) => {
               const category = categoryOf(transaction.categoryId)
               const savings = isSavingsCategory(transaction.categoryId)
+              const isExcluded = !savings && !isLivingExpense(transaction)
               return (
                 <li key={transaction.id}>
                   <button className="tx" type="button" onClick={() => onEdit(transaction)}>
@@ -557,7 +559,11 @@ export function HomePage({
                     <span className="tx__main">
                       <span className="tx__merchant">
                         {transaction.merchant}
-                        {savings && <Badge tone="success">저축</Badge>}
+                        {savings ? (
+                          <Badge tone="success">저축</Badge>
+                        ) : isExcluded ? (
+                          <Badge tone="accent">실적용</Badge>
+                        ) : null}
                       </span>
                       <span className="tx__meta">
                         {savings ? '저축 · 계좌' : `${category.label} · ${cardName(transaction.cardId)}`} ·{' '}
@@ -565,7 +571,13 @@ export function HomePage({
                       </span>
                     </span>
                     <span
-                      className={`tx__amount${savings ? ' tx__amount--savings' : ''}`}
+                      className={`tx__amount${
+                        savings
+                          ? ' tx__amount--savings'
+                          : isExcluded
+                            ? ' tx__amount--excluded'
+                            : ''
+                      }`}
                     >
                       {savings ? '+' : ''}
                       {won(transaction.amount)}
