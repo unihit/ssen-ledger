@@ -2052,6 +2052,13 @@ async function buildFixedExpensePayload(
     normalizedPaymentMethod ?? '',
   )
 
+  let noteToSave = input.note || ''
+  if ((input as Record<string, unknown>).isVariable) {
+    if (!/\[variable\]/i.test(noteToSave)) {
+      noteToSave = noteToSave ? `[variable] ${noteToSave}` : '[variable]'
+    }
+  }
+
   return {
     household_id: householdId,
     active: input.active,
@@ -2069,7 +2076,7 @@ async function buildFixedExpensePayload(
     merchant: input.name,
     memo: input.memo || null,
     payment_method: normalizedPaymentMethod,
-    note: input.note || null,
+    note: noteToSave || null,
     card_id: usesCard ? cardId : null,
     updated_by: 'muse',
   }
@@ -2077,11 +2084,15 @@ async function buildFixedExpensePayload(
 
 function toApiFixedExpense(row: Record<string, unknown>) {
   const dayOfMonth = Number(row.day_of_month) || 1
+  const rawNote = String(row.note ?? '')
+  const isVariable = /\[variable\]/i.test(rawNote)
+  const cleanNote = rawNote.replace(/\[variable\]\s*/gi, '').trim()
   return {
     id: row.id,
     active: Boolean(row.active),
     name: row.merchant ?? '',
     amount: Number(row.amount) || 0,
+    isVariable,
     dayOfMonth,
     dayLabel: fixedDayLabel(dayOfMonth),
     categoryMajor: row.category_major ?? '생활비',
@@ -2096,7 +2107,7 @@ function toApiFixedExpense(row: Record<string, unknown>) {
     cardId: row.card_id ?? null,
     paymentMethod: row.payment_method ?? null,
     memo: row.memo ?? '',
-    note: row.note ?? '',
+    note: cleanNote,
     startMonth: row.start_month ? String(row.start_month).slice(0, 7) : null,
     endMonth: row.end_month ? String(row.end_month).slice(0, 7) : null,
     createdAt: row.created_at ?? null,
@@ -2279,14 +2290,42 @@ async function fixedExpenses(
       // 매칭은 fixed_expense_id + fixed_expense_month로만 인정한다.
       // 같은 날짜·금액이어도 연결되지 않은 거래는 자동 매칭하지 않고 후보로만 알려준다.
       const matched = linked
+      const rowNote = String(row.note ?? '')
+      const isVariable = /\[variable\]/i.test(rowNote)
       const suggestedCandidates = !matched && candidateDate
         ? transactions
-            .filter(
-              (transaction) =>
-                !transaction.fixed_expense_id &&
-                transaction.date === candidateDate &&
-                effectiveAmount(transaction) === Number(row.amount),
-            )
+            .filter((transaction) => {
+              if (transaction.fixed_expense_id) return false
+              const txAmt = effectiveAmount(transaction)
+              const rowAmt = Number(row.amount)
+              const txDate = String(transaction.date ?? '')
+
+              // 1. 정확한 날짜 + 정확한 금액
+              if (txDate === candidateDate && txAmt === rowAmt) return true
+
+              // 2. 변동 정기지출(isVariable) 또는 카드/가맹점 매칭 (±4일 오차 범위)
+              const targetMerchant = String(row.merchant ?? '').toLowerCase()
+              const txMerchant = String(transaction.merchant ?? '').toLowerCase()
+              const merchantMatches =
+                targetMerchant &&
+                (txMerchant.includes(targetMerchant) || targetMerchant.includes(txMerchant))
+              const cardMatches = row.card_id && String(transaction.card_id) === String(row.card_id)
+
+              if (merchantMatches || (cardMatches && isVariable)) {
+                const diffDays = Math.abs(
+                  (new Date(txDate).getTime() - new Date(candidateDate).getTime()) /
+                    (1000 * 60 * 60 * 24),
+                )
+                if (diffDays <= 4) {
+                  if (isVariable) {
+                    return txAmt > 0 && Math.abs(txAmt - rowAmt) / Math.max(1, rowAmt) <= 0.35
+                  }
+                  if (txAmt === rowAmt) return true
+                }
+              }
+
+              return false
+            })
             .slice(0, 5)
             .map((transaction) => ({
               id: transaction.id,

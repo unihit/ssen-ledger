@@ -1165,11 +1165,18 @@ curl "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/insights/atten
 기존에는 실제 확정 거래액(`currentMonthSpend`)만 나와서, 에이전트나 사용자가 아직 결제일이 도래하지 않은 고정지출(예: MG+ S 하나카드의 제미나이 프로 7,300원, 보험료 56,270원 등)을 일일이 암산해야 했습니다.
 
 이제 `GET /v1/cards/status` 응답의 각 카드 객체에 다음 예측 필드가 기본 제공됩니다:
-- `pendingFixedExpensesSpend`: 이번 달 아직 청구되지 않은 고정지출 합계
+- `pendingFixedExpensesSpend`: 이번 달 아직 청구되지 않은 고정/정기지출 합계
 - `projectedMonthEndSpend`: `currentMonthSpend + pendingFixedExpensesSpend` (예상 월말 실적)
 - `projectedToRequirement`: 목표 실적까지 실제로 더 써야 하는 남은 금액
-- `projectedPerformanceMet`: 예정 고정지출 반영 시 실적 충족 여부
-- `pendingFixedExpenses`: 해당 카드로 결제 예정인 고정지출 상세 목록
+- `projectedPerformanceMet`: 예정 고정/정기지출 반영 시 실적 충족 여부
+- `pendingFixedExpenses`: 해당 카드로 결제 예정인 고정/정기지출 상세 목록
+
+#### 변동 정기지출 (`isVariable: true`) 지원
+보험료나 관리비, 통신비처럼 **매월 결제 금액이 조금씩 달라지는 정기 지출**도 예상 실적에 반영할 수 있습니다.
+- `POST /v1/fixed-expenses` 호출 시 `"isVariable": true`를 전달하면 내부적으로 `[variable]` 태그가 보관되며 `isVariable: true`로 반환됩니다.
+- 입력된 `amount`는 **"예상 결제액"**으로 작동하여 카드의 `projectedSpend` 및 `projectedToRequirement`에 즉시 산입됩니다.
+  - 예: MG+ S 하나카드에 DB손해보험(예상 56,270원, 매월 26일)을 등록하면, 목표 300,000원에서 실제지출(13,482원) + 제미나이(7,300원) + 보험료(56,270원)가 모두 차감되어 **남은 필요 금액이 정확히 222,948원**으로 예측 계산됩니다.
+- 결제일 전후(±4일)에 실제 청구 거래가 들어오면 금액이 예상치와 정확히 일치하지 않아도(±35% 범위 내) **자동으로 후보(`suggestedCandidates`)로 매칭**되어 `apply`로 간편하게 연결 등록할 수 있습니다.
 
 ---
 
