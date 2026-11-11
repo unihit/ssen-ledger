@@ -399,6 +399,19 @@ export function SettingsPage() {
                         : `${wonShort(-budgetDiff)} 초과`}
                   </Badge>
                 </div>
+                <div className="budget-summary-bar__progress-track">
+                  <div
+                    className="budget-summary-bar__progress-fill"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        totalBudget > 0
+                          ? (categoryBudgetsSum / totalBudget) * 100
+                          : 0,
+                      )}%`,
+                    }}
+                  />
+                </div>
                 <div className="budget-summary-bar__actions">
                   <button
                     type="button"
@@ -419,28 +432,44 @@ export function SettingsPage() {
               </div>
 
               <div className="budget-inputs">
-                {BUDGET_CATEGORIES.map((category) => (
-                  <label className="budget-input" key={category.id}>
-                    <span>
-                      {category.emoji} {category.label}
-                    </span>
-                    <input
-                      inputMode="numeric"
-                      value={formatAmount(categoryBudgets[category.id] ?? '0')}
-                      onChange={(event) =>
-                        setCategoryBudgets((current) => ({
-                          ...current,
-                          [category.id]: event.target.value
-                            .replace(/[^\d]/g, '')
-                            .slice(0, 10),
-                        }))
-                      }
-                      placeholder="0"
-                      aria-label={`${category.label} 예산`}
-                    />
-                    <span className="budget-input__unit">원</span>
-                  </label>
-                ))}
+                {BUDGET_CATEGORIES.map((category) => {
+                  const val = toNumber(categoryBudgets[category.id] ?? '0')
+                  const hasBudget = val > 0
+                  return (
+                    <label
+                      className={`budget-input${
+                        hasBudget ? ' has-budget' : ' is-zero'
+                      }`}
+                      key={category.id}
+                    >
+                      <span className="budget-input__label">
+                        <span className="budget-input__emoji" aria-hidden="true">
+                          {category.emoji}
+                        </span>
+                        <span className="budget-input__name">
+                          {category.label}
+                        </span>
+                      </span>
+                      <div className="budget-input__control">
+                        <input
+                          inputMode="numeric"
+                          value={val ? val.toLocaleString('ko-KR') : ''}
+                          onChange={(event) =>
+                            setCategoryBudgets((current) => ({
+                              ...current,
+                              [category.id]: event.target.value
+                                .replace(/[^\d]/g, '')
+                                .slice(0, 10),
+                            }))
+                          }
+                          placeholder="0"
+                          aria-label={`${category.label} 예산`}
+                        />
+                        <span className="budget-input__unit">원</span>
+                      </div>
+                    </label>
+                  )
+                })}
               </div>
               <span className="field__hint">
                 저축은 카테고리 예산이 아니라 위의 월 저축 목표로 관리해요.
