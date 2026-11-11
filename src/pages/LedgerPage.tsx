@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Icon } from '../components/Icon'
 import { Badge, EmptyState, MonthPicker } from '../components/ui'
 import { CATEGORIES, categoryOf, isSavingsCategory } from '../data/categories'
-import { isExcludedFromSpend } from '../lib/analytics'
+import { isExcludedFromSpend, isLivingExpense } from '../lib/analytics'
 import { benefitRuleForTransaction } from '../lib/benefits'
 import { formatDateKo, formatDateShort, todayISO, weekdayOf } from '../lib/date'
 import {
@@ -84,13 +84,13 @@ export function LedgerPage({
       .filter((transaction) => {
         if (spendTypeFilter === 'all') return true
         if (spendTypeFilter === 'actual') {
-          return (
-            !isSavingsCategory(transaction.categoryId) &&
-            !isExcludedFromSpend(transaction)
-          )
+          return isLivingExpense(transaction)
         }
         if (spendTypeFilter === 'excluded') {
-          return isExcludedFromSpend(transaction)
+          return (
+            !isSavingsCategory(transaction.categoryId) &&
+            !isLivingExpense(transaction)
+          )
         }
         if (spendTypeFilter === 'savings') {
           return isSavingsCategory(transaction.categoryId)
@@ -137,10 +137,10 @@ export function LedgerPage({
     (transaction) => !isSavingsCategory(transaction.categoryId),
   )
   const actualSpending = spending.filter(
-    (transaction) => !isExcludedFromSpend(transaction),
+    (transaction) => isLivingExpense(transaction),
   )
   const spendExcluded = spending.filter(
-    (transaction) => isExcludedFromSpend(transaction),
+    (transaction) => !isLivingExpense(transaction),
   )
   const savings = filtered.filter((transaction) =>
     isSavingsCategory(transaction.categoryId),
@@ -204,10 +204,10 @@ export function LedgerPage({
     for (const tx of monthTransactions) {
       if (isSavingsCategory(tx.categoryId)) {
         savingsCount += 1
-      } else if (isExcludedFromSpend(tx)) {
-        excluded += 1
-      } else {
+      } else if (isLivingExpense(tx)) {
         actual += 1
+      } else {
+        excluded += 1
       }
     }
     return {
@@ -596,7 +596,7 @@ export function LedgerPage({
         <div className="tx-groups">
           {groups.map(([date, items]) => {
             const daySpend = items
-              .filter((transaction) => !isSavingsCategory(transaction.categoryId))
+              .filter((transaction) => isLivingExpense(transaction))
               .reduce((sum, transaction) => sum + transaction.amount, 0)
             const daySavings = items
               .filter((transaction) => isSavingsCategory(transaction.categoryId))

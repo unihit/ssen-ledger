@@ -39,7 +39,7 @@ export function monthTransactions(
  * 생활비 총 지출 및 통계에서 제외할 거래인지 여부.
  * - 저축 카테고리
  * - 명시적 지출 제외 플래그 (excludeFromSpend)
- * - 집계 제외 그룹 (categoryGroup === '집계 제외')
+ * - categoryGroup이 '생활비'가 아닌 모든 거래 ('집계 제외', '투자회수', '수입' 등)
  * - 실적으로 결제한 문화상품권 / 상품권 충전 등 실적 채움 목적 결제
  */
 export function isExcludedFromSpend(transaction: {
@@ -54,7 +54,9 @@ export function isExcludedFromSpend(transaction: {
   if (isSavingsCategory(transaction.categoryId)) return true
   if (transaction.categoryId === 'giftcard') return true
   if (transaction.excludeFromSpend) return true
-  if (transaction.categoryGroup === '집계 제외') return true
+  if (transaction.categoryGroup) {
+    if (transaction.categoryGroup !== '생활비') return true
+  }
 
   // 전월 실적 채움/더미 내역
   if (transaction.merchant && /실적\s*채움/i.test(transaction.merchant)) return true
@@ -72,6 +74,26 @@ export function isExcludedFromSpend(transaction: {
   }
 
   return false
+}
+
+/**
+ * 실제 생활비 지출인지 판별.
+ * - categoryGroup이 '생활비'인 거래만 실제 지출입니다.
+ * - '집계 제외', '투자회수', '수입' 등 생활비가 아닌 거래는 제외됩니다.
+ */
+export function isLivingExpense(transaction: {
+  categoryId?: string | null
+  excludeFromSpend?: boolean
+  categoryGroup?: string | null
+  categoryMinor?: string | null
+  merchant?: string | null
+  memo?: string | null
+  cardId?: string | null
+}): boolean {
+  if (transaction.categoryGroup) {
+    return transaction.categoryGroup === '생활비' && !transaction.excludeFromSpend
+  }
+  return !isSavingsCategory(transaction.categoryId) && !isExcludedFromSpend(transaction)
 }
 
 export function totalSpend(transactions: Transaction[], month: string): number {
