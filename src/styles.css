@@ -3892,9 +3892,54 @@ select:focus {
 
 /* ---------- responsive ---------- */
 @media (max-width: 900px) {
-  .cards-grid,
-  .settings-grid {
+  .cards-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-grid {
+    display: contents;
+  }
+
+  .settings-stack {
+    display: contents;
+  }
+
+  .page--settings {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .page--settings .page-head {
+    order: 0;
+  }
+
+  .page--settings .fixed-settings {
+    order: 1;
+  }
+
+  .page--settings .budget-settings {
+    order: 2;
+  }
+
+  .page--settings .card-settings {
+    order: 3;
+  }
+
+  .page--settings .account-settings {
+    order: 4;
+  }
+
+  .page--settings .data-settings {
+    order: 5;
+  }
+
+  .page--settings .danger-settings {
+    order: 6;
+  }
+
+  .page--settings .about-settings {
+    order: 7;
   }
 
   .mini-cards {

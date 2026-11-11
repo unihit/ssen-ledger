@@ -199,7 +199,7 @@ export function SettingsPage() {
           : 'success'
 
   return (
-    <div className="page">
+    <div className="page page--settings">
       <header className="page-head">
         <div>
           <p className="page-head__eyebrow">SETTINGS</p>
@@ -208,7 +208,7 @@ export function SettingsPage() {
       </header>
 
       <div className="settings-grid">
-        <section className="panel">
+        <section className="panel budget-settings">
           <header className="panel__head">
             <div>
               <h2>수입과 예산</h2>
@@ -578,8 +578,8 @@ export function SettingsPage() {
           </div>
         </section>
 
-        <div className="stack">
-          <section className="panel">
+        <div className="stack settings-stack">
+          <section className="panel account-settings">
             <header className="panel__head">
               <div>
                 <h2>계정 · 동기화</h2>
@@ -643,7 +643,7 @@ export function SettingsPage() {
             </p>
           </section>
 
-          <section className="panel">
+          <section className="panel data-settings">
             <header className="panel__head">
               <div>
                 <h2>데이터</h2>
@@ -685,7 +685,7 @@ export function SettingsPage() {
             </p>
           </section>
 
-          <section className="panel">
+          <section className="panel danger-settings">
             <header className="panel__head">
               <div>
                 <h2>초기화</h2>
@@ -716,7 +716,7 @@ export function SettingsPage() {
             </div>
           </section>
 
-          <section className="panel about">
+          <section className="panel about about-settings">
             <div className="about__mark">쎈</div>
             <div>
               <h2>쎈 가계부</h2>
