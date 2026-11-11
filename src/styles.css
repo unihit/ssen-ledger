@@ -3914,15 +3914,15 @@ select:focus {
     order: 0;
   }
 
-  .page--settings .fixed-settings {
+  .page--settings .budget-settings {
     order: 1;
   }
 
-  .page--settings .budget-settings {
+  .page--settings .card-settings {
     order: 2;
   }
 
-  .page--settings .card-settings {
+  .page--settings .fixed-settings {
     order: 3;
   }
 
