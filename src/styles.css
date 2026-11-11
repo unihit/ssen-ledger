@@ -2121,6 +2121,11 @@ select:focus {
 
 .panel__head--collapsed {
   margin-bottom: 0;
+  align-items: center;
+}
+
+.fixed-panel .panel__head--collapsed {
+  align-items: center;
 }
 
 .fixed-panel .panel__head,
@@ -4161,6 +4166,10 @@ select:focus {
     align-items: flex-start;
     justify-content: space-between;
     gap: 10px;
+  }
+
+  .fixed-panel .panel__head--collapsed {
+    align-items: center;
   }
 
   .fixed-panel .panel__head > div:first-child,

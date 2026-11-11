@@ -317,11 +317,9 @@ export function LedgerPage({
                 />
               </span>
             </h2>
-            <p>
-              {isFixedCollapsed
-                ? '클릭하면 이번 달 고정지출 상세 목록을 펼칠 수 있어요.'
-                : '템플릿은 지출·저축에 잡히지 않아요. 확인 후 반영해 주세요.'}
-            </p>
+            {!isFixedCollapsed && (
+              <p>템플릿은 지출·저축에 잡히지 않아요. 확인 후 반영해 주세요.</p>
+            )}
           </div>
           <div className="fixed-panel__summary">
             <strong>{won(fixedTotal)}</strong>
