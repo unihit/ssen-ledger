@@ -145,9 +145,12 @@ export function SettingsPage() {
     setMessage(result.message)
   }
 
-  const activeFixedExpenses = fixedExpenses.filter(
-    (fixedExpense) => fixedExpense.active,
-  )
+  const activeFixedExpenses = fixedExpenses
+    .filter((fixedExpense) => fixedExpense.active)
+    .sort((a, b) => {
+      if (a.dayOfMonth !== b.dayOfMonth) return a.dayOfMonth - b.dayOfMonth
+      return a.name.localeCompare(b.name)
+    })
   const fixedLiving = activeFixedExpenses.filter(
     (f) => !isSavingsFixedExpense(f),
   )

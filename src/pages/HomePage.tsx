@@ -416,7 +416,7 @@ export function HomePage({
         <header className="panel__head">
           <div>
             <h2>이번 달 고정지출·저축</h2>
-            <p>반영 전에는 지출·저축으로 잡히지 않아요</p>
+            <p>실제 결제 후 [반영] 버튼을 눌러야 가계부에 기록돼요</p>
           </div>
           <div className="fixed-panel__summary">
             <strong>{won(fixedTotal)}</strong>

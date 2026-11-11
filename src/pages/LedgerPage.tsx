@@ -156,8 +156,8 @@ export function LedgerPage({
   )
   const excludedCount = spending.filter((transaction) => transaction.excluded).length
 
-  const fixedItems = fixedExpensesForMonth(fixedExpenses, month).map(
-    (fixedExpense) => ({
+  const fixedItems = fixedExpensesForMonth(fixedExpenses, month)
+    .map((fixedExpense) => ({
       fixedExpense,
       candidates: fixedExpenseCandidates(
         fixedExpense,
@@ -172,8 +172,12 @@ export function LedgerPage({
         todayISO(),
         state.transactions,
       ),
-    }),
-  )
+    }))
+    .sort((a, b) => {
+      const dateCmp = a.dueDate.localeCompare(b.dueDate)
+      if (dateCmp !== 0) return dateCmp
+      return a.fixedExpense.name.localeCompare(b.fixedExpense.name)
+    })
   const fixedTotal = fixedItems.reduce(
     (sum, item) => sum + item.fixedExpense.amount,
     0,
@@ -318,7 +322,7 @@ export function LedgerPage({
               </span>
             </h2>
             {!isFixedCollapsed && (
-              <p>템플릿은 지출·저축에 잡히지 않아요. 확인 후 반영해 주세요.</p>
+              <p>실제 결제 후 [반영] 버튼을 눌러야 가계부에 기록돼요.</p>
             )}
           </div>
           <div className="fixed-panel__summary">
