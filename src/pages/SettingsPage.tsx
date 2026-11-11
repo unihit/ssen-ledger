@@ -56,6 +56,7 @@ export function SettingsPage() {
   })
   const [saved, setSaved] = useState(false)
   const [message, setMessage] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'configured' | 'zero'>('all')
   const [dangerModal, setDangerModal] = useState<'reset' | 'clear' | null>(null)
   const [confirmText, setConfirmText] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
@@ -164,6 +165,18 @@ export function SettingsPage() {
   const totalBudget = toNumber(budget)
   const budgetDiff = totalBudget - categoryBudgetsSum
   const recommendedGoal = Math.max(0, toNumber(income) - toNumber(budget))
+
+  const configuredCategoriesCount = BUDGET_CATEGORIES.filter(
+    (c) => toNumber(categoryBudgets[c.id] ?? '0') > 0,
+  ).length
+  const zeroCategoriesCount = BUDGET_CATEGORIES.length - configuredCategoriesCount
+
+  const displayedCategories = BUDGET_CATEGORIES.filter((category) => {
+    const val = toNumber(categoryBudgets[category.id] ?? '0')
+    if (categoryFilter === 'configured') return val > 0
+    if (categoryFilter === 'zero') return val === 0
+    return true
+  })
 
   const syncLabel = !configured
     ? '로컬 모드'
@@ -431,46 +444,123 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              <div className="budget-inputs">
-                {BUDGET_CATEGORIES.map((category) => {
-                  const val = toNumber(categoryBudgets[category.id] ?? '0')
-                  const hasBudget = val > 0
-                  return (
-                    <label
-                      className={`budget-input${
-                        hasBudget ? ' has-budget' : ' is-zero'
-                      }`}
-                      key={category.id}
-                    >
-                      <span className="budget-input__label">
-                        <span className="budget-input__emoji" aria-hidden="true">
-                          {category.emoji}
-                        </span>
-                        <span className="budget-input__name">
-                          {category.label}
-                        </span>
-                      </span>
-                      <div className="budget-input__control">
-                        <input
-                          inputMode="numeric"
-                          value={val ? val.toLocaleString('ko-KR') : ''}
-                          onChange={(event) =>
-                            setCategoryBudgets((current) => ({
-                              ...current,
-                              [category.id]: event.target.value
-                                .replace(/[^\d]/g, '')
-                                .slice(0, 10),
-                            }))
-                          }
-                          placeholder="0"
-                          aria-label={`${category.label} 예산`}
-                        />
-                        <span className="budget-input__unit">원</span>
-                      </div>
-                    </label>
-                  )
-                })}
+              <div className="budget-category-filter-bar">
+                <div
+                  className="budget-category-filters"
+                  role="tablist"
+                  aria-label="카테고리 예산 보기 필터"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={categoryFilter === 'all'}
+                    className={`budget-filter-pill${
+                      categoryFilter === 'all' ? ' is-active' : ''
+                    }`}
+                    onClick={() => setCategoryFilter('all')}
+                  >
+                    전체 <span className="budget-filter-pill__count">{BUDGET_CATEGORIES.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={categoryFilter === 'configured'}
+                    className={`budget-filter-pill${
+                      categoryFilter === 'configured' ? ' is-active' : ''
+                    }`}
+                    onClick={() => setCategoryFilter('configured')}
+                  >
+                    설정됨 <span className="budget-filter-pill__count">{configuredCategoriesCount}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={categoryFilter === 'zero'}
+                    className={`budget-filter-pill${
+                      categoryFilter === 'zero' ? ' is-active' : ''
+                    }`}
+                    onClick={() => setCategoryFilter('zero')}
+                  >
+                    미설정 <span className="budget-filter-pill__count">{zeroCategoriesCount}</span>
+                  </button>
+                </div>
+                {categoryFilter !== 'all' && (
+                  <span className="budget-category-filter-hint">
+                    {categoryFilter === 'configured'
+                      ? '예산 배분된 항목만 표시'
+                      : '0원인 항목만 표시'}
+                  </span>
+                )}
               </div>
+
+              {displayedCategories.length === 0 ? (
+                <div className="budget-inputs__empty">
+                  <p>
+                    {categoryFilter === 'configured'
+                      ? '설정된 카테고리 예산이 없습니다. "전체" 탭에서 예산을 입력해 보세요.'
+                      : '모든 카테고리에 예산이 설정되었습니다.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="budget-inputs">
+                  {displayedCategories.map((category) => {
+                    const val = toNumber(categoryBudgets[category.id] ?? '0')
+                    const hasBudget = val > 0
+                    return (
+                      <label
+                        className={`budget-input${
+                          hasBudget ? ' has-budget' : ' is-zero'
+                        }`}
+                        key={category.id}
+                      >
+                        <span className="budget-input__label">
+                          <span className="budget-input__emoji" aria-hidden="true">
+                            {category.emoji}
+                          </span>
+                          <span className="budget-input__name" title={category.label}>
+                            {category.label}
+                          </span>
+                        </span>
+                        <div className="budget-input__control">
+                          <input
+                            inputMode="numeric"
+                            value={val ? val.toLocaleString('ko-KR') : ''}
+                            onChange={(event) =>
+                              setCategoryBudgets((current) => ({
+                                ...current,
+                                [category.id]: event.target.value
+                                  .replace(/[^\d]/g, '')
+                                  .slice(0, 10),
+                              }))
+                            }
+                            placeholder="0"
+                            aria-label={`${category.label} 예산`}
+                          />
+                          <span className="budget-input__unit">원</span>
+                          {hasBudget && (
+                            <button
+                              type="button"
+                              className="budget-input__clear-btn"
+                              title={`${category.label} 예산 초기화(0원)`}
+                              aria-label={`${category.label} 예산 초기화`}
+                              onClick={(event) => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                setCategoryBudgets((current) => ({
+                                  ...current,
+                                  [category.id]: '0',
+                                }))
+                              }}
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
               <span className="field__hint">
                 저축은 카테고리 예산이 아니라 위의 월 저축 목표로 관리해요.
               </span>

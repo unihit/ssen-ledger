@@ -99,6 +99,32 @@ const SHEET_TO_APP_CATEGORY: Record<string, string> = {
   '계좌이체|본인계좌이체': 'etc',
 }
 
+const APP_CATEGORY_TO_SHEET: Record<string, { major: string; minor: string }> = {
+  food: { major: '생활비', minor: '외식비' },
+  cafe: { major: '생활비', minor: '카페' },
+  mart: { major: '생활비', minor: '마트' },
+  delivery: { major: '생활비', minor: '외식비' },
+  shopping: { major: '생활비', minor: '의복/미용' },
+  transport: { major: '생활비', minor: '교통' },
+  telecom: { major: '생활비', minor: '통신' },
+  subscription: { major: '생활비', minor: '구독' },
+  travel: { major: '생활비', minor: '기타' },
+  culture: { major: '생활비', minor: '기타' },
+  game: { major: '생활비', minor: '게임' },
+  medical: { major: '생활비', minor: '건강' },
+  insurance: { major: '생활비', minor: '보험료' },
+  living: { major: '생활비', minor: '생활' },
+  housing: { major: '생활비', minor: '주거' },
+  events: { major: '생활비', minor: '경조사' },
+  dues: { major: '생활비', minor: '회비' },
+  donation: { major: '생활비', minor: '기부금' },
+  education: { major: '생활비', minor: '기타' },
+  fuel: { major: '생활비', minor: '자동차' },
+  giftcard: { major: '생활비', minor: '상품권' },
+  savings: { major: '투자납입', minor: '예적금' },
+  etc: { major: '생활비', minor: '기타' },
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const CORS_HEADERS: Record<string, string> = {
   'access-control-allow-origin': '*',
@@ -3610,10 +3636,22 @@ async function getFixedExpensesTodayOrPending(
   }
 }
 
+interface SmartParseOptions {
+  defaultYear?: number
+  autoRecord?: boolean
+  force?: boolean
+  memo?: string
+  categoryId?: string
+  cardId?: string
+  cardName?: string
+  card?: string
+  paymentMethod?: string
+}
+
 async function smartParseTransaction(
   householdId: string,
   text: string,
-  defaultYear?: number,
+  options?: SmartParseOptions,
 ) {
   if (!text || typeof text !== 'string') {
     throw new ApiError(400, 'BAD_REQUEST', '파싱할 텍스트(text)를 입력해주세요.')
@@ -3621,7 +3659,7 @@ async function smartParseTransaction(
 
   const raw = text.trim()
   const today = todayKst()
-  const currentYear = defaultYear || Number(today.slice(0, 4))
+  const currentYear = options?.defaultYear || Number(today.slice(0, 4))
 
   let amount = 0
   const amountMatch =
@@ -3655,11 +3693,13 @@ async function smartParseTransaction(
   }
 
   let cardRef: string | null = null
-  let paymentMethod = '신용카드'
+  let paymentMethod = options?.paymentMethod || '신용카드'
 
-  if (/체크/.test(raw)) paymentMethod = '체크카드'
-  else if (/간편결제|페이|pay/i.test(raw)) paymentMethod = '간편결제'
-  else if (/계좌|이체/.test(raw)) paymentMethod = '계좌이체'
+  if (!options?.paymentMethod) {
+    if (/체크/.test(raw)) paymentMethod = '체크카드'
+    else if (/간편결제|페이|pay/i.test(raw)) paymentMethod = '간편결제'
+    else if (/계좌|이체/.test(raw)) paymentMethod = '계좌이체'
+  }
 
   const bracketMatch = raw.match(/\[([^\]]+)\]/)
   const bracketContent = bracketMatch ? bracketMatch[1] : ''
@@ -3676,10 +3716,15 @@ async function smartParseTransaction(
     { key: 'mg-honey-check', match: /새마을|꿀카드/i },
   ]
 
-  for (const ck of cardKeywords) {
-    if (ck.match.test(bracketContent) || ck.match.test(raw)) {
-      cardRef = ck.key
-      break
+  const explicitCard = options?.cardId || options?.cardName || options?.card
+  if (explicitCard) {
+    cardRef = String(explicitCard)
+  } else {
+    for (const ck of cardKeywords) {
+      if (ck.match.test(bracketContent) || ck.match.test(raw)) {
+        cardRef = ck.key
+        break
+      }
     }
   }
 
@@ -3718,7 +3763,8 @@ async function smartParseTransaction(
     .filter((w) => w.length > 1 && !/^(카드|체크|신용|페이|원|건)$/.test(w))
   const merchant = words[0] || '가맹점 미상'
 
-  const categoryId = inferCategoryFromMerchant(merchant)
+  const inferredCategoryId = inferCategoryFromMerchant(merchant)
+  const categoryId = options?.categoryId || inferredCategoryId
   const categoryLabel = APP_SPENDING_CATEGORIES.find((c) => c.id === categoryId)?.label ?? '기타'
 
   const { data: dupData } = await db()
@@ -3746,6 +3792,66 @@ async function smartParseTransaction(
   const confidence =
     amount > 0 && merchant !== '가맹점 미상' ? 'high' : amount > 0 ? 'medium' : 'low'
 
+  const shouldAutoRecord = Boolean(options?.autoRecord)
+  let recorded = false
+  let requiresConfirmation = false
+  let createdTransaction: Record<string, unknown> | null = null
+  let message = isDuplicateCandidate
+    ? `오늘 동일한 금액(${won(amount)})의 기존 거래(${duplicateCandidates[0]?.merchant})가 존재합니다.`
+    : `${matchedCard?.name ?? paymentMethod} ${won(amount)}(${merchant}) 정보가 정상 파싱되었습니다.`
+
+  if (shouldAutoRecord) {
+    if (amount <= 0) {
+      message = '결제 금액을 인식하지 못하여 자동 등록되지 않았습니다.'
+    } else if (isDuplicateCandidate && !options?.force) {
+      requiresConfirmation = true
+      message = `오늘 동일한 금액(${won(amount)})의 거래 내역(${duplicateCandidates[0]?.merchant})이 이미 존재합니다. 중복 입력을 방지하기 위해 자동 등록을 보류했습니다. (강제 등록: force: true)`
+    } else {
+      const sheetCat = APP_CATEGORY_TO_SHEET[categoryId] ?? {
+        major: '생활비',
+        minor: '기타',
+      }
+      const category = await resolveCategory(sheetCat.major, sheetCat.minor)
+      const usesCard = ['신용카드', '체크카드', '간편결제'].includes(paymentMethod)
+      const cardId = usesCard && matchedCard ? (matchedCard.id as string) : null
+
+      const payload = {
+        household_id: householdId,
+        id: crypto.randomUUID(),
+        date: parsedDate,
+        merchant,
+        amount,
+        category_id: categoryId,
+        card_id: cardId,
+        memo: options?.memo || 'MUSE 모바일 알림 자동 입력',
+        excluded: false,
+        category_major: sheetCat.major,
+        category_minor: sheetCat.minor,
+        category_group: category.category_group,
+        correction: 0,
+        payment_method: paymentMethod,
+        note: '',
+        status: 'active',
+        source: 'muse',
+        created_by: 'muse',
+        updated_by: 'muse',
+      }
+
+      const { data: inserted, error: insertError } = await db()
+        .from('transactions')
+        .insert(payload)
+        .select('*')
+        .single()
+
+      if (insertError) throw dbError(insertError)
+
+      const annotated = await annotateSingle(inserted as Record<string, unknown>)
+      createdTransaction = toApiTransaction(annotated) as unknown as Record<string, unknown>
+      recorded = true
+      message = `${matchedCard?.name ?? paymentMethod} ${won(amount)}(${merchant}) 결제가 ${categoryLabel} 카테고리에 성공적으로 등록되었습니다.`
+    }
+  }
+
   return {
     raw,
     parsed: {
@@ -3770,6 +3876,10 @@ async function smartParseTransaction(
       createdAt: t.created_at,
     })),
     confidence,
+    recorded,
+    requiresConfirmation,
+    createdTransaction,
+    message,
   }
 }
 
@@ -3891,8 +4001,18 @@ async function handle(req: Request): Promise<Response> {
   if (path === '/v1/transactions/smart-parse' && method === 'POST') {
     const body = await readBody(req)
     const text = String(body.text ?? body.message ?? body.raw ?? '')
-    const defaultYear = body.defaultYear ? Number(body.defaultYear) : undefined
-    return dataResponse(await smartParseTransaction(householdId, text, defaultYear))
+    const options: SmartParseOptions = {
+      defaultYear: body.defaultYear ? Number(body.defaultYear) : undefined,
+      autoRecord: Boolean(body.autoRecord || body.autoCreate || body.record),
+      force: Boolean(body.force),
+      memo: body.memo ? String(body.memo) : undefined,
+      categoryId: body.categoryId ? String(body.categoryId) : undefined,
+      cardId: (body.cardId ?? body.cardName ?? body.card)
+        ? String(body.cardId ?? body.cardName ?? body.card)
+        : undefined,
+      paymentMethod: body.paymentMethod ? String(body.paymentMethod) : undefined,
+    }
+    return dataResponse(await smartParseTransaction(householdId, text, options))
   }
 
   if (path === '/v1/transactions' && method === 'GET') {

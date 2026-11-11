@@ -1005,3 +1005,56 @@ curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/transa
 ```
 MUSE는 `isDuplicateCandidate: true`인 경우 "동일한 날짜에 같은 금액(1,040원)의 쿠팡 결제 내역이 이미 존재합니다. 새로 등록하시겠습니까?"라고 사용자에게 확인 질문을 건넬 수 있습니다.
 
+#### 1-Shot 모바일 알림 자동 등록 (`autoRecord: true`)
+MUSE가 휴대폰 결제 문자나 푸시 알림을 수신했을 때 파싱과 등록을 **단 1회의 API 호출**로 완료할 수 있습니다.
+중복 의심 건(`isDuplicateCandidate: true`)이 감지되면 자동으로 입력을 멈추고 `requiresConfirmation: true`를 반환하여 이중 입력을 방지합니다.
+
+```bash
+curl -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/agent-api/v1/transactions/smart-parse" \
+  -H "Authorization: Bearer $AGENT_API_KEY" \
+  -H "Content-Type: application/json; charset=utf-8" \
+  -d '{
+    "text": "[신한체크] 11/11 15:10 메가커피 3,000원 일시불",
+    "autoRecord": true,
+    "memo": "MUSE 모바일 알림 자동 입력"
+  }'
+```
+
+- **안전 자동 등록 완료 시 (`recorded: true`)**:
+```json
+{
+  "data": {
+    "raw": "[신한체크] 11/11 15:10 메가커피 3,000원 일시불",
+    "parsed": { ... },
+    "isDuplicateCandidate": false,
+    "recorded": true,
+    "requiresConfirmation": false,
+    "createdTransaction": {
+      "id": "f769ee03-...",
+      "date": "2026-11-11",
+      "merchant": "메가커피",
+      "amount": 3000,
+      "category": "생활비 - 카페",
+      "categoryId": "cafe",
+      "card": "신한 나라사랑체크카드",
+      "paymentMethod": "체크카드"
+    },
+    "message": "신한 나라사랑체크카드 3,000원(메가커피) 결제가 카페·간식 카테고리에 성공적으로 등록되었습니다."
+  }
+}
+```
+
+- **중복 의심 거래 감지 시 안전 차단 (`recorded: false`, `requiresConfirmation: true`)**:
+```json
+{
+  "data": {
+    "isDuplicateCandidate": true,
+    "recorded": false,
+    "requiresConfirmation": true,
+    "duplicateCandidates": [ ... ],
+    "message": "오늘 동일한 금액(3,000원)의 거래 내역(메가커피)이 이미 존재합니다. 중복 입력을 방지하기 위해 자동 등록을 보류했습니다. (강제 등록: force: true)"
+  }
+}
+```
+MUSE는 `requiresConfirmation: true`일 때만 사용자에게 "동일한 결제 내역이 이미 있는데 추가할까요?"라고 묻고, 사용자가 승인하면 `"force": true`를 전달하여 등록할 수 있습니다.
+
