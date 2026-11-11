@@ -93,6 +93,15 @@ export function TransactionModal({
     return initCard ? defaultPaymentMethodForCard(initCard.kind) : '계좌이체'
   })
   const [memo, setMemo] = useState(initial?.memo ?? fixedExpense?.memo ?? '')
+  const [sameDayCashout, setSameDayCashout] = useState(() => {
+    if (initial) {
+      return Boolean(initial.note && /\[redeemed:true/i.test(initial.note))
+    }
+    return (
+      startingCategoryId === 'giftcard' ||
+      /포인트리|리브머니/i.test(fixedExpense?.name ?? '')
+    )
+  })
   const [excludeFromSpend, setExcludeFromSpend] = useState(() => {
     if (startingSavings) return false
     if (initial) {
@@ -250,7 +259,7 @@ export function TransactionModal({
       : excludeFromSpend
         ? false
         : excluded
-    const effectiveExcludeFromSpend = savingsCategory ? false : excludeFromSpend
+    const effectiveExcludeFromSpend = savingsCategory ? false : (sameDayCashout || excludeFromSpend)
     const effectiveMerchant =
       merchant.trim() || (savingsCategory ? '저축' : `${categoryLabel} 결제`)
     const categoryGroup = effectiveExcludeFromSpend
@@ -259,7 +268,7 @@ export function TransactionModal({
         ? '생활비'
         : (initial?.categoryGroup ?? (fixedExpense ? fixedExpense.categoryGroup : '생활비'))
     const categoryMinor =
-      categoryId === 'giftcard' || /문화상품권/i.test(effectiveMerchant)
+      categoryId === 'giftcard' || /문화상품권|포인트리|리브머니/i.test(effectiveMerchant)
         ? '상품권'
         : categoryId === 'insurance'
           ? '보험료'
@@ -268,6 +277,18 @@ export function TransactionModal({
             : initial && categoryId !== initial.categoryId
               ? undefined
               : (initial?.categoryMinor ?? (fixedExpense ? fixedExpense.categoryMinor : undefined))
+
+    let effectiveNote = initial?.note ?? ''
+    const isGiftcardOrPointree =
+      categoryId === 'giftcard' || /문화상품권|포인트리|리브머니|상품권/i.test(effectiveMerchant)
+
+    if (sameDayCashout) {
+      effectiveNote = effectiveNote.replace(/\[redeemed:[^\]]+\]/g, '').trim()
+      effectiveNote = `${effectiveNote} [redeemed:true redeemed_at:${date} redeemed_amount:${numericAmount}]`.trim()
+    } else if (initial && !sameDayCashout && isGiftcardOrPointree) {
+      effectiveNote = effectiveNote.replace(/\[redeemed:[^\]]+\]/g, '').trim()
+    }
+
     const payload = {
       date,
       merchant: effectiveMerchant,
@@ -276,6 +297,7 @@ export function TransactionModal({
       cardId: effectiveCardId,
       paymentMethod: effectivePaymentMethod,
       memo: memo.trim(),
+      note: effectiveNote || undefined,
       excluded: effectiveExcluded,
       excludeFromSpend: effectiveExcludeFromSpend,
       categoryGroup,
@@ -625,6 +647,12 @@ export function TransactionModal({
                 setExcludeFromSpend(true)
                 setExcluded(false)
               }
+              if (!initial && /포인트리|리브머니/i.test(val)) {
+                setCategoryId('giftcard')
+                setExcludeFromSpend(true)
+                setExcluded(false)
+                setSameDayCashout(true)
+              }
             }}
           />
         </div>
@@ -828,6 +856,28 @@ export function TransactionModal({
           </p>
         ) : (
           <>
+            {(categoryId === 'giftcard' || /상품권|포인트리|리브머니/i.test(merchant)) && (
+              <label className="switch-row">
+                <span>
+                  당일 현금화 완료 (미현금화 목록 제외)
+                  <small>KB포인트리나 충전 당일 현금화한 상품권을 완료 상태로 관리해요</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={sameDayCashout}
+                  onChange={(event) => {
+                    const checked = event.target.checked
+                    setSameDayCashout(checked)
+                    if (checked) {
+                      setExcludeFromSpend(true)
+                      setExcluded(false)
+                    }
+                  }}
+                />
+                <span className="switch" aria-hidden="true" />
+              </label>
+            )}
+
             <label className="switch-row">
               <span>
                 총 지출에서 제외 (실적 채움용)

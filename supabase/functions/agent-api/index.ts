@@ -4044,6 +4044,64 @@ async function smartParseTransaction(
   }
 }
 
+function parseRedemptionTag(note?: string | null): {
+  redeemed: boolean
+  redeemedAt?: string
+  redeemedAmount?: number
+} {
+  if (!note) return { redeemed: false }
+  const match = note.match(
+    /\[redeemed:(true|false)(?:\s+redeemed_at:([0-9-]+))?(?:\s+redeemed_amount:([0-9.]+))?\]/i,
+  )
+  if (!match) return { redeemed: false }
+  return {
+    redeemed: match[1].toLowerCase() === 'true',
+    redeemedAt: match[2] || undefined,
+    redeemedAmount: match[3] ? Number(match[3]) : undefined,
+  }
+}
+
+function calculateRedeemedAmount(
+  purchase: Record<string, unknown>,
+  explicitAmount?: number,
+): {
+  redeemedAmount: number
+  feeAmount: number
+  faceValue: number
+} {
+  const purchaseAmount = Number(purchase.effective_amount ?? purchase.amount) || 0
+  const merchant = String(purchase.merchant ?? '')
+  const isPointree = /포인트리|리브머니/i.test(merchant)
+
+  if (explicitAmount && explicitAmount > 0) {
+    const face = isPointree ? explicitAmount : Math.max(purchaseAmount, explicitAmount)
+    return {
+      redeemedAmount: explicitAmount,
+      feeAmount: Math.max(0, face - explicitAmount),
+      faceValue: face,
+    }
+  }
+
+  if (isPointree) {
+    return {
+      redeemedAmount: purchaseAmount,
+      feeAmount: 0,
+      faceValue: purchaseAmount,
+    }
+  }
+
+  // 북앤라이프, 문화상품권 등: 액면가 기준 페이즈 8% 수수료 차감
+  const estimatedCount = Math.max(1, Math.round(purchaseAmount / 46000))
+  const faceValue = estimatedCount * 50000
+  const feeAmount = Math.round(faceValue * 0.08)
+  const redeemedAmount = faceValue - feeAmount
+  return {
+    redeemedAmount,
+    feeAmount,
+    faceValue,
+  }
+}
+
 async function getUnredeemedGiftCards(householdId: string, monthInput?: string | null) {
   const { data: txData, error: txError } = await db()
     .from('transactions')
@@ -4057,7 +4115,7 @@ async function getUnredeemedGiftCards(householdId: string, monthInput?: string |
   if (txError) throw dbError(txError)
   const allTxs = (txData ?? []) as Record<string, unknown>[]
 
-  // 1. [linked_tx:<purchaseId>] 태그가 붙은 현금화(환급) 거래 매핑
+  // 1. [linked_tx:<purchaseId>] 태그가 붙은 기존 현금화(환급) 거래 매핑 (하위 호환)
   const redemptionsByPurchaseId = new Map<string, Record<string, unknown>>()
   for (const t of allTxs) {
     const noteStr = String(t.note ?? '')
@@ -4080,7 +4138,7 @@ async function getUnredeemedGiftCards(householdId: string, monthInput?: string |
     return (
       minor === '상품권' ||
       catId === 'giftcard' ||
-      /상품권|북앤라이프|도서문화|해피머니|컬쳐랜드/i.test(merch)
+      /상품권|북앤라이프|도서문화|해피머니|컬쳐랜드|포인트리|리브머니/i.test(merch)
     )
   })
 
@@ -4095,7 +4153,11 @@ async function getUnredeemedGiftCards(householdId: string, monthInput?: string |
 
   for (const p of filteredPurchases) {
     const pid = String(p.id)
-    const redemption = redemptionsByPurchaseId.get(pid)
+    const noteStr = String(p.note ?? '')
+    const tag = parseRedemptionTag(noteStr)
+    const legacyRedemption = redemptionsByPurchaseId.get(pid)
+    const isRedeemed = tag.redeemed || Boolean(legacyRedemption)
+
     const cardName = p.card_id ? (cardMap.get(String(p.card_id)) ?? String(p.card_id)) : null
     const amt = Number(p.effective_amount ?? p.amount) || 0
 
@@ -4111,16 +4173,27 @@ async function getUnredeemedGiftCards(householdId: string, monthInput?: string |
       createdAt: p.created_at,
     }
 
-    if (redemption) {
+    if (isRedeemed) {
+      const redeemedDate = tag.redeemedAt || (legacyRedemption ? String(legacyRedemption.date) : null)
+      const redeemedAmt =
+        tag.redeemedAmount ??
+        (legacyRedemption
+          ? Number(legacyRedemption.effective_amount ?? legacyRedemption.amount) || 0
+          : null)
+      const feeAmt = amt > (redeemedAmt ?? 0) ? amt - (redeemedAmt ?? 0) : 0
+
       redeemedList.push({
         purchase: item,
         redemption: {
-          id: String(redemption.id),
-          date: String(redemption.date),
-          merchant: String(redemption.merchant),
-          amount: Number(redemption.effective_amount ?? redemption.amount) || 0,
-          paymentMethod: redemption.payment_method ? String(redemption.payment_method) : null,
-          createdAt: redemption.created_at,
+          id: legacyRedemption ? String(legacyRedemption.id) : null,
+          date: redeemedDate,
+          merchant: legacyRedemption ? String(legacyRedemption.merchant) : '현금화 완료',
+          amount: redeemedAmt ?? amt,
+          feeAmount: feeAmt,
+          paymentMethod: legacyRedemption?.payment_method
+            ? String(legacyRedemption.payment_method)
+            : '계좌이체',
+          createdAt: legacyRedemption?.created_at ?? p.created_at,
         },
       })
     } else {
@@ -4147,79 +4220,234 @@ async function getUnredeemedGiftCards(householdId: string, monthInput?: string |
 
 async function cashoutGiftCard(req: Request, householdId: string) {
   const body = await readBody(req)
-  const purchaseId = String(
-    body.purchaseTransactionId || body.purchaseId || body.linkedTransactionId || '',
-  ).trim()
-  if (!purchaseId) {
+  let purchaseIds: string[] = []
+  if (Array.isArray(body.purchaseTransactionIds)) {
+    purchaseIds = body.purchaseTransactionIds.map(String).map((s) => s.trim()).filter(Boolean)
+  } else if (Array.isArray(body.purchaseIds)) {
+    purchaseIds = body.purchaseIds.map(String).map((s) => s.trim()).filter(Boolean)
+  } else {
+    const single = String(
+      body.purchaseTransactionId || body.purchaseId || body.linkedTransactionId || '',
+    ).trim()
+    if (single) purchaseIds = [single]
+  }
+
+  if (purchaseIds.length === 0) {
     throw new ApiError(
       400,
       'BAD_REQUEST',
-      '현금화할 원본 상품권 구매 거래 ID(purchaseTransactionId)가 필요합니다.',
+      '현금화할 원본 상품권 구매 거래 ID(purchaseTransactionId 또는 purchaseTransactionIds)가 필요합니다.',
     )
   }
 
-  const { data: purchase, error: pError } = await db()
+  const { data: purchases, error: pError } = await db()
     .from('transactions')
     .select('*')
     .eq('household_id', householdId)
-    .eq('id', purchaseId)
-    .maybeSingle()
+    .in('id', purchaseIds)
 
   if (pError) throw dbError(pError)
-  if (!purchase) {
-    throw new ApiError(404, 'NOT_FOUND', `구매 거래 ID(${purchaseId})를 찾을 수 없습니다.`)
+  if (!purchases || purchases.length === 0) {
+    throw new ApiError(404, 'NOT_FOUND', '해당 상품권 구매 거래를 찾을 수 없습니다.')
   }
 
   const today = todayKst()
   const date = isDateString(String(body.date ?? '')) ? String(body.date) : today
-  const purchaseAmount = Number(purchase.effective_amount ?? purchase.amount) || 0
-  const amount = typeof body.amount === 'number' && body.amount > 0 ? body.amount : purchaseAmount
-  const merchant = String(body.merchant || `상품권 현금화 (${purchase.merchant ?? '페이즈'})`)
-  const memo = String(body.memo || `${purchase.merchant ?? '상품권'} 현금화 완료`)
-  const paymentMethod = String(body.paymentMethod || '계좌이체')
+  const results = []
+  let totalRedeemedAmount = 0
+  let totalPurchasedAmount = 0
+  let totalFeeAmount = 0
 
-  const note = `[linked_tx:${purchaseId}] ${body.note ?? ''}`.trim()
+  for (const purchase of purchases) {
+    const explicitAmount =
+      typeof body.amount === 'number' && purchases.length === 1 ? body.amount : undefined
+    const calc = calculateRedeemedAmount(purchase as Record<string, unknown>, explicitAmount)
 
-  const payload = {
-    household_id: householdId,
-    id: crypto.randomUUID(),
-    date,
-    merchant,
-    amount,
-    category_id: 'etc',
-    card_id: null,
-    memo,
-    excluded: true,
-    category_major: '투자회수',
-    category_minor: '기타투자',
-    category_group: '집계 제외',
-    correction: 0,
-    payment_method: paymentMethod,
-    note,
-    status: 'active',
-    source: 'muse',
-    created_by: 'muse',
-    updated_by: 'muse',
+    const existingNote = String(purchase.note ?? '').replace(/\[redeemed:[^\]]+\]/g, '').trim()
+    const newNote = `${existingNote} [redeemed:true redeemed_at:${date} redeemed_amount:${calc.redeemedAmount}]`.trim()
+
+    const { error: updateError } = await db()
+      .from('transactions')
+      .update({
+        note: newNote,
+        category_group: '집계 제외',
+        updated_by: 'muse',
+      })
+      .eq('household_id', householdId)
+      .eq('id', purchase.id)
+
+    if (updateError) throw dbError(updateError)
+
+    const pAmt = Number(purchase.effective_amount ?? purchase.amount) || 0
+    totalRedeemedAmount += calc.redeemedAmount
+    totalPurchasedAmount += pAmt
+    totalFeeAmount += calc.feeAmount
+
+    results.push({
+      purchaseId: purchase.id,
+      merchant: purchase.merchant,
+      purchaseAmount: pAmt,
+      faceValue: calc.faceValue,
+      redeemedAmount: calc.redeemedAmount,
+      feeAmount: calc.feeAmount,
+      redeemedAt: date,
+    })
   }
 
-  const { data: inserted, error: iError } = await db()
-    .from('transactions')
-    .insert(payload)
-    .select('*')
-    .single()
+  return dataResponse({
+    success: true,
+    redeemedCount: results.length,
+    totalPurchasedAmount,
+    totalRedeemedAmount,
+    totalFeeAmount,
+    items: results,
+    message: `${results.length}건의 상품권이 현금화 완료 처리되었습니다 (총 입금: ${won(totalRedeemedAmount)}). 가계부 거래 목록에는 추가되지 않고 상품권 상태만 갱신되었습니다.`,
+  })
+}
 
-  if (iError) throw dbError(iError)
+async function cashoutAllGiftCards(req: Request, householdId: string) {
+  const body = ((await readBody(req).catch(() => ({}))) || {}) as Record<string, unknown>
+  const url = new URL(req.url)
+  const month = String(body.month || url.searchParams.get('month') || '').trim() || null
 
-  const annotated = await annotateSingle(inserted as Record<string, unknown>)
-  return dataResponse(
-    {
+  const unredeemedData = await getUnredeemedGiftCards(householdId, month)
+  const unredeemed = unredeemedData.unredeemed
+  if (unredeemed.length === 0) {
+    return dataResponse({
+      success: true,
+      redeemedCount: 0,
+      totalRedeemedAmount: 0,
+      message: '현금화할 미현금화 상품권이 없습니다.',
+      items: [],
+    })
+  }
+
+  const purchaseIds = unredeemed.map((i) => i.id)
+  const today = todayKst()
+  const date = isDateString(String(body.date ?? '')) ? String(body.date) : today
+
+  const fakeReq = new Request(req.url, {
+    method: 'POST',
+    headers: req.headers,
+    body: JSON.stringify({
+      purchaseTransactionIds: purchaseIds,
+      date,
+    }),
+  })
+  return cashoutGiftCard(fakeReq, householdId)
+}
+
+async function getGiftCardsHistory(householdId: string, monthInput?: string | null) {
+  const giftCardData = await getUnredeemedGiftCards(householdId, monthInput)
+  const items = [
+    ...giftCardData.redeemed.map((r) => ({
+      id: r.purchase.id,
+      date: r.purchase.date,
+      merchant: r.purchase.merchant,
+      cardName: r.purchase.cardName,
+      purchaseAmount: r.purchase.amount,
+      status: 'redeemed',
       redeemed: true,
-      purchaseTransaction: toApiTransaction(purchase as Record<string, unknown>),
-      redemptionTransaction: toApiTransaction(annotated),
-      message: `${purchase.merchant} (${won(amount)}) 현금화 거래가 성공적으로 연결 등록되었습니다.`,
-    },
-    201,
-  )
+      redeemedAt: r.redemption?.date ?? null,
+      redeemedAmount: r.redemption?.amount ?? null,
+      feeAmount: r.redemption?.feeAmount ?? 0,
+    })),
+    ...giftCardData.unredeemed.map((u) => {
+      const calc = calculateRedeemedAmount({
+        merchant: u.merchant,
+        amount: u.amount,
+        effective_amount: u.amount,
+      })
+      return {
+        id: u.id,
+        date: u.date,
+        merchant: u.merchant,
+        cardName: u.cardName,
+        purchaseAmount: u.amount,
+        status: 'unredeemed',
+        redeemed: false,
+        redeemedAt: null,
+        redeemedAmount: null,
+        expectedRedeemedAmount: calc.redeemedAmount,
+        expectedFeeAmount: calc.feeAmount,
+      }
+    }),
+  ]
+
+  items.sort((a, b) => String(b.date).localeCompare(String(a.date)))
+
+  return {
+    summary: giftCardData.summary,
+    items,
+  }
+}
+
+async function migrateCashoutTransactions(_req: Request, householdId: string) {
+  const { data: cashouts, error: cError } = await db()
+    .from('transactions')
+    .select('*')
+    .eq('household_id', householdId)
+    .eq('status', 'active')
+    .or('category_major.eq.투자회수,merchant.ilike.%페이즈%')
+
+  if (cError) throw dbError(cError)
+  const list = cashouts ?? []
+  const migrated = []
+
+  for (const c of list) {
+    const noteStr = String(c.note ?? '')
+    const match = noteStr.match(/\[linked_tx:([^\]]+)\]/)
+    if (!match) continue
+    const purchaseId = match[1]
+
+    const { data: purchase, error: pError } = await db()
+      .from('transactions')
+      .select('*')
+      .eq('household_id', householdId)
+      .eq('id', purchaseId)
+      .maybeSingle()
+
+    if (pError || !purchase) continue
+
+    const cashoutAmount = Number(c.effective_amount ?? c.amount) || 0
+    const cashoutDate = String(c.date)
+
+    const existingNote = String(purchase.note ?? '').replace(/\[redeemed:[^\]]+\]/g, '').trim()
+    const newNote = `${existingNote} [redeemed:true redeemed_at:${cashoutDate} redeemed_amount:${cashoutAmount}]`.trim()
+
+    await db()
+      .from('transactions')
+      .update({
+        note: newNote,
+        category_group: '집계 제외',
+        updated_by: 'migration',
+      })
+      .eq('id', purchaseId)
+
+    await db()
+      .from('transactions')
+      .update({
+        status: 'canceled',
+        memo: `[migrated_to_tag] ${c.memo ?? ''}`.trim(),
+        updated_by: 'migration',
+      })
+      .eq('id', c.id)
+
+    migrated.push({
+      cashoutId: c.id,
+      purchaseId,
+      amount: cashoutAmount,
+      date: cashoutDate,
+      merchant: purchase.merchant,
+    })
+  }
+
+  return dataResponse({
+    success: true,
+    migratedCount: migrated.length,
+    migrated,
+    message: `${migrated.length}건의 현금화 거래를 원본 상품권 상태 태그로 이관하고, 가계부 거래 목록에서 취소(숨김) 처리했습니다.`,
+  })
 }
 
 async function getInsightsAttention(householdId: string, monthInput?: string | null) {
@@ -4483,6 +4711,9 @@ async function meta(householdId: string) {
       insightsAttention: 'GET /v1/insights/attention?month=YYYY-MM',
       giftCardsUnredeemed: 'GET /v1/giftcards/unredeemed?month=YYYY-MM',
       giftCardsCashout: 'POST /v1/giftcards/cashout',
+      giftCardsCashoutAll: 'POST /v1/giftcards/cashout-all',
+      giftCardsHistory: 'GET /v1/giftcards/history?month=YYYY-MM',
+      giftCardsMigrate: 'POST /v1/giftcards/migrate-cashouts',
       health: 'GET /v1/health',
       meta: 'GET /v1/meta',
       budget: 'GET/PATCH/PUT /v1/budget (also supports /v1/budgets)',
@@ -4561,8 +4792,21 @@ async function handle(req: Request): Promise<Response> {
     return dataResponse(await getUnredeemedGiftCards(householdId, month))
   }
 
+  if (path === '/v1/giftcards/history' && method === 'GET') {
+    const month = url.searchParams.get('month')
+    return dataResponse(await getGiftCardsHistory(householdId, month))
+  }
+
   if (path === '/v1/giftcards/cashout' && method === 'POST') {
     return cashoutGiftCard(req, householdId)
+  }
+
+  if (path === '/v1/giftcards/cashout-all' && method === 'POST') {
+    return cashoutAllGiftCards(req, householdId)
+  }
+
+  if (path === '/v1/giftcards/migrate-cashouts' && method === 'POST') {
+    return migrateCashoutTransactions(req, householdId)
   }
 
   if (

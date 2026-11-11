@@ -42,6 +42,7 @@ export function LedgerPage({
     fixedExpenseApplications,
     unlinkedTransactions,
     cloudEnabled,
+    updateTransaction,
   } = useApp()
   const [spendTypeFilter, setSpendTypeFilter] = useState<SpendTypeFilter>('all')
   const [categoryFilter, setCategoryFilter] = useState<'all' | (typeof CATEGORIES)[number]['id']>(
@@ -217,6 +218,54 @@ export function LedgerPage({
       savings: savingsCount,
     }
   }, [monthTransactions])
+
+  const unredeemedGiftCards = useMemo(() => {
+    return monthTransactions.filter((tx) => {
+      const isGift =
+        tx.categoryId === 'giftcard' ||
+        tx.categoryMinor === '상품권' ||
+        /상품권|북앤라이프|도서문화|해피머니|컬쳐랜드|포인트리|리브머니/i.test(tx.merchant)
+      if (!isGift) return false
+      if (tx.note && /\[redeemed:true/i.test(tx.note)) return false
+      return true
+    })
+  }, [monthTransactions])
+
+  const [cashoutSuccessMsg, setCashoutSuccessMsg] = useState('')
+  const [isCashoutLoading, setIsCashoutLoading] = useState(false)
+
+  const handleCashoutAll = async () => {
+    if (unredeemedGiftCards.length === 0) return
+    setIsCashoutLoading(true)
+    try {
+      const today = todayISO()
+      let totalRedeemed = 0
+      for (const card of unredeemedGiftCards) {
+        const isPointree = /포인트리|리브머니/i.test(card.merchant)
+        let redeemedAmount = card.amount
+        if (!isPointree) {
+          const count = Math.max(1, Math.round(card.amount / 46000))
+          const faceValue = count * 50000
+          redeemedAmount = Math.round(faceValue * 0.92)
+        }
+        totalRedeemed += redeemedAmount
+        const existingNote = (card.note ?? '').replace(/\[redeemed:[^\]]+\]/g, '').trim()
+        const newNote = `${existingNote} [redeemed:true redeemed_at:${today} redeemed_amount:${redeemedAmount}]`.trim()
+        updateTransaction({
+          ...card,
+          note: newNote,
+          categoryGroup: '집계 제외',
+          excludeFromSpend: true,
+        })
+      }
+      setCashoutSuccessMsg(
+        `${unredeemedGiftCards.length}건 상품권 현금화 완료 (총 입금: ${won(totalRedeemed)})`,
+      )
+      setTimeout(() => setCashoutSuccessMsg(''), 4000)
+    } finally {
+      setIsCashoutLoading(false)
+    }
+  }
 
   const hasActiveFilter =
     spendTypeFilter !== 'all' ||
@@ -467,6 +516,31 @@ export function LedgerPage({
             </ul>
           ))}
       </section>
+
+      {unredeemedGiftCards.length > 0 && (
+        <aside className="unredeemed-banner" aria-label="미현금화 상품권 안내">
+          <div className="unredeemed-banner__body">
+            <span className="unredeemed-banner__badge">미현금화</span>
+            <div className="unredeemed-banner__text">
+              <strong>미현금화 상품권 {unredeemedGiftCards.length}건</strong>
+              <span>
+                {won(unredeemedGiftCards.reduce((s, c) => s + c.amount, 0))} 미현금화
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn--tiny btn--primary unredeemed-banner__btn"
+            onClick={handleCashoutAll}
+            disabled={isCashoutLoading}
+          >
+            {isCashoutLoading ? '처리 중...' : '전부 현금화'}
+          </button>
+        </aside>
+      )}
+      {cashoutSuccessMsg && (
+        <div className="unredeemed-banner__toast">{cashoutSuccessMsg}</div>
+      )}
 
       <section className="filters panel">
         <div className="filters__top">

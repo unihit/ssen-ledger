@@ -457,6 +457,15 @@ export function FixedExpenseEditModal({
               onChange={(event) => patch({ startMonth: event.target.value })}
             />
           </div>
+          <div className="field">
+            <label htmlFor="fixed-end">종료월 (선택)</label>
+            <input
+              id="fixed-end"
+              type="month"
+              value={draft.endMonth ?? ''}
+              onChange={(event) => patch({ endMonth: event.target.value })}
+            />
+          </div>
         </div>
 
         <div className="field">
