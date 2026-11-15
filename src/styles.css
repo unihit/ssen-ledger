@@ -777,6 +777,23 @@ p {
 }
 
 /* ---------- transactions ---------- */
+.card-overview__counts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.card-overview__counts > span { padding: 4px 10px; border-radius: 20px; background: var(--surface-2); color: var(--text-2); font-size: 11px; font-weight: 650; }
+.card-overview__group + .card-overview__group { margin-top: 24px; }
+.card-overview__heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 12px; }
+.card-overview__heading h3 { font-size: 14px; }
+.card-overview__heading > span { font-size: 11px; color: var(--text-3); }
+.mini-card__heading { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 10px; }
+.mini-card__heading .mini-card__name { margin-top: 0; }
+.mini-card__favorite { display: grid; place-items: center; flex-shrink: 0; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-3); }
+.mini-card__favorite:hover { background: var(--line); }
+.mini-card__favorite.is-active { color: #d99100; }
+.mini-card__label { font-size: 11px; color: var(--text-2); }
+.mini-card .mini-card__spend { font-size: 22px; font-variant-numeric: tabular-nums; }
+.mini-card__complete { display: inline-flex; align-items: center; gap: 4px; color: var(--success); font-size: 11px; font-weight: 650; }
+.mini-card__footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 8px; border-top: 1px solid var(--line); padding-top: 10px; margin-top: 12px; font-size: 11px; color: var(--text-2); }
+.mini-card__footer > strong { color: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; }
+
 .tx-list {
   margin: 0;
   padding: 0;

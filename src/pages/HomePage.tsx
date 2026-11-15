@@ -41,6 +41,7 @@ export function HomePage({
     state,
     month,
     setMonth,
+    toggleFavoriteCard,
     fixedExpenses,
     fixedExpenseApplications,
   } = useApp()
@@ -53,6 +54,15 @@ export function HomePage({
 
   const cards = state.cards.filter((card) => card.active)
   const cardMonths = cards.map((card) => computeCardMonth(card, state.transactions, month))
+  const favoriteIds = state.settings.favoriteCardIds ?? []
+  const byPriority = (a: (typeof cardMonths)[number], b: (typeof cardMonths)[number]) =>
+    Number(favoriteIds.includes(b.card.id)) - Number(favoriteIds.includes(a.card.id)) ||
+    a.toRequirement - b.toRequirement || a.card.name.localeCompare(b.card.name, 'ko')
+  const cardGroups = [
+    { id: 'pending', label: '미충족', title: '실적을 채우는 중', items: cardMonths.filter((item) => item.card.minSpendForBenefits > 0 && item.toRequirement > 0).sort(byPriority) },
+    { id: 'unconditional', label: '조건 없음', title: '조건 없이 사용', items: cardMonths.filter((item) => item.card.minSpendForBenefits === 0).sort(byPriority) },
+    { id: 'complete', label: '충족', title: '실적 충족', items: cardMonths.filter((item) => item.card.minSpendForBenefits > 0 && item.toRequirement === 0).sort(byPriority) },
+  ]
   const benefit = cardMonths.reduce((total, item) => total + item.totalBenefit, 0)
 
   const cardAlerts: { tone: 'good' | 'warn' | 'info'; title: string; body: string }[] = []
@@ -498,36 +508,55 @@ export function HomePage({
             <Icon name="right" size={15} />
           </button>
         </header>
-        <div className="mini-cards">
-          {cardMonths.map((cardMonth) => (
-            <article className="mini-card" key={cardMonth.card.id}>
-              <span
-                className="mini-card__stripe"
-                style={{
-                  background: `linear-gradient(135deg, ${cardMonth.card.colorFrom}, ${cardMonth.card.colorTo})`,
-                }}
-              />
-              <span className="mini-card__name">{cardMonth.card.name}</span>
-              <strong className="mini-card__spend">{won(cardMonth.spend)}</strong>
-              <span className="mini-card__benefit">혜택 {won(cardMonth.totalBenefit)}</span>
-              <div className="mini-card__progress">
-                <Progress
-                  value={cardMonth.spend}
-                  max={cardMonth.card.minSpendForBenefits || 1}
-                  tone={cardMonth.toRequirement > 0 ? 'warn' : 'success'}
-                  thin
-                />
-              </div>
-              <span className="mini-card__status">
-                {cardMonth.card.minSpendForBenefits === 0
-                  ? '실적 조건 없음'
-                  : cardMonth.toRequirement > 0
-                    ? `${wonShort(cardMonth.toRequirement)} 남음`
-                    : '실적 충족'}
-              </span>
-            </article>
-          ))}
+        <div className="card-overview__counts">
+          {cardGroups.map((group) => <span key={group.id}>{group.label} {group.items.length}장</span>)}
         </div>
+        {cardGroups.filter((group) => group.items.length > 0).map((group) => (
+          <section className="card-overview__group" key={group.id} aria-label={group.title}>
+            <div className="card-overview__heading">
+              <h3>{group.title}</h3>
+              <span>{group.id === 'pending' ? '즐겨찾기 먼저 · 남은 금액이 적은 순' : '즐겨찾기 먼저'}</span>
+            </div>
+            <div className="mini-cards">
+              {group.items.map((cardMonth) => {
+                const favorite = (state.settings.favoriteCardIds ?? []).includes(cardMonth.card.id)
+                return (
+                  <article className="mini-card" key={cardMonth.card.id}>
+                    <span className="mini-card__stripe" style={{ background: `linear-gradient(135deg, ${cardMonth.card.colorFrom}, ${cardMonth.card.colorTo})` }} />
+                    <div className="mini-card__heading">
+                      <button
+                        type="button"
+                        className={`mini-card__favorite${favorite ? ' is-active' : ''}`}
+                        aria-label={`${cardMonth.card.name} 즐겨찾기 ${favorite ? '해제' : '추가'}`}
+                        aria-pressed={favorite}
+                        onClick={() => toggleFavoriteCard(cardMonth.card.id)}
+                      >
+                        <Icon name={favorite ? 'starFilled' : 'star'} size={17} />
+                      </button>
+                      <span className="mini-card__name" title={cardMonth.card.name}>{cardMonth.card.name}</span>
+                    </div>
+                    <span className="mini-card__label">{group.id === 'pending' ? '충족까지' : '이번 달 사용'}</span>
+                    <strong className="mini-card__spend">{won(group.id === 'pending' ? cardMonth.toRequirement : cardMonth.spend)}</strong>
+                    {group.id !== 'unconditional' && (
+                      <>
+                        <div className="mini-card__progress">
+                          <Progress value={cardMonth.spend} max={cardMonth.card.minSpendForBenefits} tone={group.id === 'pending' ? 'warn' : 'success'} thin />
+                        </div>
+                        <span className="mini-card__status">{won(cardMonth.spend)} / 목표 {won(cardMonth.card.minSpendForBenefits)}</span>
+                      </>
+                    )}
+                    {group.id === 'complete' && <span className="mini-card__complete"><Icon name="check" size={12} /> 실적 충족</span>}
+                    {group.id === 'unconditional' && <span className="mini-card__status">실적 조건 없이 사용</span>}
+                    {group.id === 'complete' && cardMonth.nextTierRemaining > 0 && <span className="mini-card__status">다음 구간까지 {won(cardMonth.nextTierRemaining)}</span>}
+                    <div className="mini-card__footer"><span>이번 달 받은 혜택</span><strong>{won(cardMonth.totalBenefit)}</strong></div>
+                  </article>
+                )
+              })}
+            </div>
+          </section>
+        ))}
+        {cardMonths.length === 0 && <p className="panel__empty">카드 관리에서 사용할 카드를 등록해 주세요.</p>}
+
       </section>
 
       <section className="panel">
