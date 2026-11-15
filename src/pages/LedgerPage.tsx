@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../components/Icon'
 import { Badge, EmptyState, MonthPicker } from '../components/ui'
 import { CATEGORIES, categoryOf, isSavingsCategory } from '../data/categories'
@@ -133,6 +133,37 @@ export function LedgerPage({
     }
     return [...map.entries()]
   }, [filtered])
+
+  const groupsRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const container = groupsRef.current
+    const topbar = document.querySelector('.topbar')
+    if (!container || !topbar) return
+    let frame = 0
+    const update = () => {
+      frame = 0
+      const edge = topbar.getBoundingClientRect().bottom
+      container.querySelectorAll<HTMLElement>('.tx-group__head').forEach((head) => {
+        head.classList.toggle('is-stuck', head.getBoundingClientRect().top <= edge + 0.5)
+      })
+    }
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(update)
+    }
+    const observer = new ResizeObserver(schedule)
+    observer.observe(topbar)
+    observer.observe(container)
+    window.addEventListener('scroll', schedule, { passive: true })
+    window.addEventListener('resize', schedule)
+    schedule()
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+      window.removeEventListener('scroll', schedule)
+      window.removeEventListener('resize', schedule)
+    }
+  }, [groups])
 
   const monthTransactions = useMemo(
     () =>
@@ -681,7 +712,7 @@ export function LedgerPage({
           />
         </div>
       ) : (
-        <div className="tx-groups">
+        <div className="tx-groups" ref={groupsRef}>
           {groups.map(([date, items]) => {
             const daySpend = items
               .filter((transaction) => isLivingExpense(transaction))

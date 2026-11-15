@@ -22,7 +22,6 @@ import {
   todayISO,
 } from '../lib/date'
 import {
-  fixedExpenseDayLabel,
   fixedExpenseStatus,
   fixedExpensesForMonth,
   isSavingsFixedExpense,
@@ -439,7 +438,6 @@ export function HomePage({
                     <span>{fixedExpense.name}</span>
                     <small>
                       {isSavingsFixedExpense(fixedExpense) ? '저축 · ' : ''}
-                      {fixedExpenseDayLabel(fixedExpense.dayOfMonth)} ·{' '}
                       {dueDate.slice(5).replace('-', '/')}
                     </small>
                     <strong>{won(fixedExpense.amount)}</strong>

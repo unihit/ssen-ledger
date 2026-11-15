@@ -25,7 +25,7 @@ async function deployedEntry(): Promise<string | null> {
 
 /**
  * 배포가 바뀌면 열린 탭이 이전 번들을 계속 쓰게 된다.
- * 탭으로 돌아올 때 새 번들을 확인하고, 있으면 새로고침을 안내한다.
+ * 화면을 보고 있는 동안 주기적으로, 탭으로 돌아올 때 새 번들을 확인한다.
  */
 export function UpdateBanner() {
   const [available, setAvailable] = useState(false)
@@ -58,7 +58,12 @@ export function UpdateBanner() {
   }, [])
 
   useEffect(() => {
+    if (import.meta.env.DEV) return
     void check()
+
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void check()
+    }, CHECK_INTERVAL_MS)
 
     const onFocus = () => void check()
     const onVisibilityChange = () => {
@@ -68,6 +73,7 @@ export function UpdateBanner() {
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
+      window.clearInterval(timer)
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
