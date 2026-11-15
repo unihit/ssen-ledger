@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Icon, type IconName } from './components/Icon'
 import { TransactionModal } from './components/TransactionModal'
 import { UpdateBanner } from './components/UpdateBanner'
@@ -27,6 +27,22 @@ const TABS: { id: Tab; label: string; icon: IconName }[] = [
 ]
 
 export default function App() {
+  const topbarRef = useRef<HTMLElement>(null)
+
+  useLayoutEffect(() => {
+    const topbar = topbarRef.current
+    const app = topbar?.parentElement
+    if (!topbar || !app) return
+
+    const updateHeight = () => {
+      app.style.setProperty('--topbar-height', `${topbar.getBoundingClientRect().height}px`)
+    }
+    updateHeight()
+    const observer = new ResizeObserver(updateHeight)
+    observer.observe(topbar)
+    return () => observer.disconnect()
+  }, [])
+
   const { month, linkFixedExpenseTransaction } = useApp()
   const [tab, setTab] = useState<Tab>('home')
   const [editor, setEditor] = useState<{
@@ -76,7 +92,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
+      <header className="topbar" ref={topbarRef}>
         <div className="topbar__inner">
           <button
             type="button"
