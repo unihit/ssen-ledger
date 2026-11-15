@@ -416,53 +416,67 @@ export function HomePage({
         <header className="panel__head fixed-home__head">
           <div>
             <h2>이번 달 고정지출·저축</h2>
-            <p>실제 결제 후 [반영] 버튼을 눌러야 가계부에 기록돼요</p>
+            <p>예정 내역을 확인하고, 실제 결제 후 반영해 주세요</p>
           </div>
+          <button
+            type="button"
+            className="btn btn--primary fixed-home__action"
+            onClick={() => {
+              onNavigate('ledger')
+              navigateTo()
+            }}
+          >
+            가계부에서 반영 <Icon name="right" size={15} />
+          </button>
         </header>
         {fixedItems.length === 0 ? (
           <p className="panel__empty">설정에서 고정지출·저축을 등록해 보세요.</p>
         ) : (
-          <div className="fixed-home__body">
-            <div className="fixed-home__upcoming">
-            <div className="fixed-home__columns" aria-hidden="true">
-              <span>반영 예정</span><span>예정일</span><span>금액</span>
-            </div>
-            <ul className="fixed-home__list">
-              {fixedUpcoming.length === 0 ? (
-                <li className="fixed-home__done">
-                  <Icon name="check" size={16} /> 이번 달 고정지출을 모두 반영했어요.
-                </li>
-              ) : (
-                fixedUpcoming.map(({ fixedExpense, dueDate }) => (
-                  <li key={fixedExpense.id}>
-                    <span>{fixedExpense.name}</span>
-                    <small>
-                      {isSavingsFixedExpense(fixedExpense) ? '저축 · ' : ''}
-                      {dueDate.slice(5).replace('-', '/')}
-                    </small>
-                    <strong>{won(fixedExpense.amount)}</strong>
-                  </li>
-                ))
-              )}
-            </ul>
-            </div>
+          <>
             <div className="fixed-home__summary">
-              <span className="fixed-home__summary-label">이번 달 예정 합계</span>
-              <strong>{won(fixedTotal)}</strong>
-              <span>{fixedRecorded}/{fixedItems.length} 반영{fixedSavingsPlanned > 0 ? ` · 저축 ${won(fixedSavingsPlanned)}` : ''}</span>
-            <button
-              type="button"
-              className="link-button"
-              onClick={() => {
-                onNavigate('ledger')
-                navigateTo()
-              }}
-            >
-              가계부에서 반영
-              <Icon name="right" size={15} />
-            </button>
+              <div className="fixed-home__total">
+                <strong>{won(fixedTotal)}</strong>
+                <span>이번 달 예정 합계</span>
+              </div>
+              <div className="fixed-home__saving">
+                <span>저축 포함</span>
+                <strong>{won(fixedSavingsPlanned)}</strong>
+              </div>
+              <div className="fixed-home__progress">
+                <span>반영 현황</span>
+                <div className="fixed-home__progress-value">
+                  <strong>{fixedRecorded} / {fixedItems.length}건</strong>
+                  <div role="progressbar" aria-label="고정지출·저축 반영 현황" aria-valuemin={0} aria-valuemax={fixedItems.length} aria-valuenow={fixedRecorded}>
+                    <Progress value={fixedRecorded} max={fixedItems.length} tone="accent" thin />
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
+            {fixedUpcoming.length === 0 ? (
+              <p className="fixed-home__done">
+                <Icon name="check" size={16} /> 이번 달 고정지출·저축을 모두 반영했어요.
+              </p>
+            ) : (
+              <div className="fixed-home__upcoming">
+                <div className="fixed-home__section-head">
+                  <h3>다가오는 항목</h3>
+                  <span>미반영 내역 중 가까운 {fixedUpcoming.length}건</span>
+                </div>
+                <ul className="fixed-home__list">
+                  {fixedUpcoming.map(({ fixedExpense, dueDate }) => (
+                    <li key={fixedExpense.id} className="fixed-home__item">
+                      <time dateTime={dueDate}>
+                        {Number(dueDate.slice(5, 7))}월 {Number(dueDate.slice(8, 10))}일
+                        {isSavingsFixedExpense(fixedExpense) && <span className="fixed-home__tag">저축</span>}
+                      </time>
+                      <span className="fixed-home__name">{fixedExpense.name}</span>
+                      <strong>{won(fixedExpense.amount)}</strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
         )}
       </section>
 
