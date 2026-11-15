@@ -414,25 +414,20 @@ export function HomePage({
       </div>
 
       <section className="panel fixed-home">
-        <header className="panel__head">
+        <header className="panel__head fixed-home__head">
           <div>
             <h2>이번 달 고정지출·저축</h2>
             <p>실제 결제 후 [반영] 버튼을 눌러야 가계부에 기록돼요</p>
-          </div>
-          <div className="fixed-panel__summary">
-            <strong>{won(fixedTotal)}</strong>
-            <span>
-              {fixedRecorded}/{fixedItems.length} 반영
-              {fixedSavingsPlanned > 0
-                ? ` · 저축 ${won(fixedSavingsPlanned)}`
-                : ''}
-            </span>
           </div>
         </header>
         {fixedItems.length === 0 ? (
           <p className="panel__empty">설정에서 고정지출·저축을 등록해 보세요.</p>
         ) : (
           <div className="fixed-home__body">
+            <div className="fixed-home__upcoming">
+            <div className="fixed-home__columns" aria-hidden="true">
+              <span>반영 예정</span><span>예정일</span><span>금액</span>
+            </div>
             <ul className="fixed-home__list">
               {fixedUpcoming.length === 0 ? (
                 <li className="fixed-home__done">
@@ -452,6 +447,11 @@ export function HomePage({
                 ))
               )}
             </ul>
+            </div>
+            <div className="fixed-home__summary">
+              <span className="fixed-home__summary-label">이번 달 예정 합계</span>
+              <strong>{won(fixedTotal)}</strong>
+              <span>{fixedRecorded}/{fixedItems.length} 반영{fixedSavingsPlanned > 0 ? ` · 저축 ${won(fixedSavingsPlanned)}` : ''}</span>
             <button
               type="button"
               className="link-button"
@@ -463,6 +463,7 @@ export function HomePage({
               가계부에서 반영
               <Icon name="right" size={15} />
             </button>
+            </div>
           </div>
         )}
       </section>
