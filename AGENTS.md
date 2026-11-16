@@ -25,6 +25,7 @@
   - 작업 시작 전 최신 `main` 기준으로 새 작업 브랜치를 생성한 뒤 수정합니다(`git fetch origin && git switch -c <브랜치명> origin/main`).
     - 기능 추가: `feat/<작업-요약>` (예: `feat/card-progress-group`)
     - 버그 수정: `fix/<작업-요약>` (예: `fix/ledger-header-overlap`)
+    - 보안 수정: `security/<작업-요약>` (예: `security/auth-signup-and-agent-cors`)
     - 스타일/리팩터링: `chore/<작업-요약>` 또는 `refactor/<작업-요약>`
   - 이미 작업 중인 피처 브랜치 위에서 이어서 수정하는 경우 해당 브랜치를 그대로 사용합니다.
 - **원격 반영(`push`) 및 병합(`merge`)**:
@@ -52,3 +53,7 @@ npm run build
 ```
 
 (`tsc --noEmit && vite build`가 에러 없이 종료되어야 합니다.)
+
+- **브라우저 확인 및 테스트**:
+  - UI 확인이나 브라우저 테스트가 필요할 때는 내장 브라우저나 Playwright 대신 **Ego Lite 브라우저(`ego-browser`)**를 사용합니다.
+  - Windows PowerShell에서는 `.mjs` 스크립트 파일(`C:/Users/<Username>/ego/<task>/round-01.mjs`)로 작성한 뒤 `cmd /c "ego-browser nodejs < <경로>"`로 실행하고, 작업 종료 시 `await task.finish({ keep: [] })`로 리소스를 정리합니다.
