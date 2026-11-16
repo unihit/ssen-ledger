@@ -44,6 +44,7 @@ Dashboard → Project Settings → Edge Functions → Secrets에서 추가:
 |---|---|
 | `AGENT_API_KEY` | `.env.agent`의 값 |
 | `AGENT_HOUSEHOLD_ID` | 가구가 2개 이상일 때만. 1개면 생략 가능 |
+| `AGENT_ALLOWED_ORIGINS` | (선택) 브라우저 호출을 허용할 Origin 목록(쉼표 구분). 비우면 브라우저 CORS 차단 |
 
 `SUPABASE_URL`과 `SUPABASE_SECRET_KEYS`는 Edge Function 런타임에서 자동 제공됩니다. 코드는 `SUPABASE_SECRET_KEYS` JSON의 `default` 키를 사용하고, legacy `SUPABASE_SERVICE_ROLE_KEY`는 fallback으로만 남겨 둡니다.
 
@@ -164,7 +165,7 @@ Content-Type: application/json
 | `DB_ERROR` + `permission denied for table` | `agent-api.sql`의 `service_role` GRANT를 적용했는지. SQL Editor에서 다시 실행 |
 | `500` | Supabase Dashboard → Edge Functions → `agent-api` → Logs |
 | `404` | URL이 `/functions/v1/agent-api/v1/...`인지 |
-| CORS | API가 `OPTIONS`와 `access-control-*`를 반환하는지 |
+| CORS | 서버/에이전트 전용이므로 기본적으로 브라우저 출처를 차단함. 웹에서 호출하려면 `AGENT_ALLOWED_ORIGINS` Secret에 허용 Origin 설정 |
 | 함수가 Supabase JWT를 요구 | `verify_jwt = false` 또는 `--no-verify-jwt`로 배포했는지 |
 
 ## 9. 보안
