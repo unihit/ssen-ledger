@@ -20,6 +20,8 @@ interface AuthContextValue {
   signOut: () => Promise<void>
 }
 
+const allowSignup = import.meta.env.VITE_ALLOW_SIGNUP === 'true'
+
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 function mapAuthError(message: string): string {
@@ -243,7 +245,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   if (supabaseConfigured && !session) {
-    return <AuthScreen onSignIn={signIn} onSignUp={signUp} />
+    return (
+      <AuthScreen
+        onSignIn={signIn}
+        onSignUp={allowSignup ? signUp : undefined}
+      />
+    )
   }
 
   if (supabaseConfigured && setupError) {

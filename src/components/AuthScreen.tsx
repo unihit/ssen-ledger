@@ -8,7 +8,7 @@ export interface AuthResult {
 
 interface AuthScreenProps {
   onSignIn: (email: string, password: string) => Promise<AuthResult>
-  onSignUp: (email: string, password: string) => Promise<AuthResult>
+  onSignUp?: (email: string, password: string) => Promise<AuthResult>
 }
 
 export function AuthScreen({ onSignIn, onSignUp }: AuthScreenProps) {
@@ -18,6 +18,7 @@ export function AuthScreen({ onSignIn, onSignUp }: AuthScreenProps) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const isSignUpMode = Boolean(onSignUp) && mode === 'signup'
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -32,9 +33,9 @@ export function AuthScreen({ onSignIn, onSignUp }: AuthScreenProps) {
     setSubmitting(true)
     try {
       const result =
-        mode === 'signin'
-          ? await onSignIn(email.trim(), password)
-          : await onSignUp(email.trim(), password)
+        isSignUpMode && onSignUp
+          ? await onSignUp(email.trim(), password)
+          : await onSignIn(email.trim(), password)
 
       if (!result.ok) {
         setError(result.message ?? '로그인에 실패했어요. 다시 시도해 주세요.')
@@ -43,7 +44,7 @@ export function AuthScreen({ onSignIn, onSignUp }: AuthScreenProps) {
 
       if (result.message) {
         setNotice(result.message)
-        if (mode === 'signup') setMode('signin')
+        if (isSignUpMode) setMode('signin')
         setPassword('')
       }
     } finally {
@@ -64,11 +65,11 @@ export function AuthScreen({ onSignIn, onSignUp }: AuthScreenProps) {
 
         <div className="auth__head">
           <p className="page-head__eyebrow">CLOUD SYNC</p>
-          <h1>{mode === 'signin' ? '로그인' : '계정 만들기'}</h1>
+          <h1>{isSignUpMode ? '계정 만들기' : '로그인'}</h1>
           <p>
-            {mode === 'signin'
-              ? '어느 기기에서든 같은 가계부를 이어서 써보세요.'
-              : '이메일 하나로 가계부를 안전하게 동기화할 수 있어요.'}
+            {isSignUpMode
+              ? '이메일 하나로 가계부를 안전하게 동기화할 수 있어요.'
+              : '어느 기기에서든 같은 가계부를 이어서 써보세요.'}
           </p>
         </div>
 
@@ -95,7 +96,7 @@ export function AuthScreen({ onSignIn, onSignUp }: AuthScreenProps) {
             <input
               id="auth-password"
               type="password"
-              autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+              autoComplete={isSignUpMode ? 'new-password' : 'current-password'}
               required
               minLength={6}
               value={password}
@@ -123,28 +124,30 @@ export function AuthScreen({ onSignIn, onSignUp }: AuthScreenProps) {
             className="btn btn--primary auth__submit"
             disabled={submitting}
           >
-            <Icon name={mode === 'signin' ? 'wallet' : 'sparkles'} size={18} />
+            <Icon name={isSignUpMode ? 'sparkles' : 'wallet'} size={18} />
             {submitting
               ? '처리 중...'
-              : mode === 'signin'
-                ? '로그인'
-                : '계정 만들기'}
+              : isSignUpMode
+                ? '계정 만들기'
+                : '로그인'}
           </button>
         </form>
 
-        <button
-          type="button"
-          className="auth__switch"
-          onClick={() => {
-            setMode((current) => (current === 'signin' ? 'signup' : 'signin'))
-            setError('')
-            setNotice('')
-          }}
-        >
-          {mode === 'signin'
-            ? '계정이 없나요? 회원가입'
-            : '이미 계정이 있나요? 로그인'}
-        </button>
+        {onSignUp && (
+          <button
+            type="button"
+            className="auth__switch"
+            onClick={() => {
+              setMode((current) => (current === 'signin' ? 'signup' : 'signin'))
+              setError('')
+              setNotice('')
+            }}
+          >
+            {isSignUpMode
+              ? '이미 계정이 있나요? 로그인'
+              : '계정이 없나요? 회원가입'}
+          </button>
+        )}
 
         <p className="auth__note">
           <Icon name="check" size={14} />

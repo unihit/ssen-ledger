@@ -4,6 +4,7 @@
 // 필요한 Secrets
 //   AGENT_API_KEY          Muse가 Authorization: Bearer 로 보낼 키 (1개)
 //   AGENT_HOUSEHOLD_ID     (선택) 가구 UUID. 없으면 household가 1개일 때 자동 선택
+//   AGENT_ALLOWED_ORIGINS  (선택) CORS 허용 Origin 쉼표 목록. 비우면 브라우저 출처 차단
 //   SUPABASE_URL           Supabase Edge Function에서 자동 제공
 //   SUPABASE_SECRET_KEYS  새 secret key JSON (자동 제공, ['default'] 사용)
 //   SUPABASE_SERVICE_ROLE_KEY  legacy fallback (자동 제공)
@@ -126,11 +127,47 @@ const APP_CATEGORY_TO_SHEET: Record<string, { major: string; minor: string }> = 
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const CORS_HEADERS: Record<string, string> = {
-  'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS',
-  'access-control-allow-headers': 'authorization, content-type',
-  'access-control-max-age': '86400',
+const MAX_BODY_BYTES = 1024 * 1024
+const ALLOWED_METHODS = 'GET, POST, PATCH, PUT, DELETE, OPTIONS'
+const ALLOWED_HEADERS = 'authorization, content-type'
+
+function getAllowedOrigins(): Set<string> {
+  const raw = Deno.env.get('AGENT_ALLOWED_ORIGINS') ?? ''
+  return new Set(
+    raw
+      .split(',')
+      .map((entry) => entry.trim().replace(/\/+$/, ''))
+      .filter((entry) => entry.length > 0 && entry !== '*'),
+  )
+}
+
+function resolveCorsHeaders(
+  req: Request,
+  isPreflight = false,
+): { allowed: boolean; headers: Record<string, string> } {
+  const origin = req.headers.get('origin')?.trim()
+  if (!origin) {
+    return { allowed: true, headers: {} }
+  }
+
+  if (!getAllowedOrigins().has(origin)) {
+    return { allowed: false, headers: { vary: 'Origin' } }
+  }
+
+  return {
+    allowed: true,
+    headers: {
+      'access-control-allow-origin': origin,
+      vary: 'Origin',
+      ...(isPreflight
+        ? {
+            'access-control-allow-methods': ALLOWED_METHODS,
+            'access-control-allow-headers': ALLOWED_HEADERS,
+            'access-control-max-age': '86400',
+          }
+        : {}),
+    },
+  }
 }
 
 const APP_SPENDING_CATEGORIES = [
@@ -380,7 +417,6 @@ function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
-      ...CORS_HEADERS,
       'content-type': 'application/json; charset=utf-8',
     },
   })
@@ -404,16 +440,22 @@ function errorResponse(error: ApiError) {
   )
 }
 
-function safeEqual(a: string, b: string) {
-  if (a.length !== b.length) return false
+async function safeEqual(a: string, b: string): Promise<boolean> {
+  const encoder = new TextEncoder()
+  const [hashA, hashB] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(a)),
+    crypto.subtle.digest('SHA-256', encoder.encode(b)),
+  ])
+  const bytesA = new Uint8Array(hashA)
+  const bytesB = new Uint8Array(hashB)
   let result = 0
-  for (let i = 0; i < a.length; i += 1) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  for (let i = 0; i < bytesA.length; i += 1) {
+    result |= bytesA[i] ^ bytesB[i]
   }
   return result === 0
 }
 
-function requireApiKey(req: Request) {
+async function requireApiKey(req: Request) {
   const configured = (Deno.env.get('AGENT_API_KEY') ?? '').trim()
   if (!configured) {
     throw new ApiError(
@@ -425,7 +467,7 @@ function requireApiKey(req: Request) {
 
   const header = req.headers.get('authorization') ?? ''
   const match = header.match(/^Bearer\s+(.+)$/i)
-  if (!match || !safeEqual(match[1].trim(), configured)) {
+  if (!match || !(await safeEqual(match[1].trim(), configured))) {
     throw new ApiError(401, 'UNAUTHORIZED', 'API 키가 올바르지 않습니다.')
   }
 }
@@ -518,7 +560,25 @@ function dbError(error: { code?: string; message?: string }) {
 }
 
 async function readBody(req: Request): Promise<Record<string, unknown>> {
-  const text = await req.text()
+  const contentLength = Number(req.headers.get('content-length') ?? '0')
+  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+    throw new ApiError(
+      413,
+      'PAYLOAD_TOO_LARGE',
+      '요청 본문이 너무 큽니다. (최대 1MB)',
+    )
+  }
+
+  const buffer = await req.arrayBuffer()
+  if (buffer.byteLength > MAX_BODY_BYTES) {
+    throw new ApiError(
+      413,
+      'PAYLOAD_TOO_LARGE',
+      '요청 본문이 너무 큽니다. (최대 1MB)',
+    )
+  }
+
+  const text = new TextDecoder().decode(buffer)
   if (!text.trim()) return {}
 
   try {
@@ -4791,7 +4851,11 @@ async function handle(req: Request): Promise<Response> {
   const method = req.method.toUpperCase()
 
   if (method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: CORS_HEADERS })
+    const cors = resolveCorsHeaders(req, true)
+    return new Response(null, {
+      status: cors.allowed ? 204 : 403,
+      headers: cors.headers,
+    })
   }
 
   if (path === '/v1/health' || path === '/health') {
@@ -4803,7 +4867,7 @@ async function handle(req: Request): Promise<Response> {
     })
   }
 
-  requireApiKey(req)
+  await requireApiKey(req)
   const householdId = await resolveHouseholdId()
 
   if (path === '/v1/meta' && method === 'GET') {
@@ -5019,17 +5083,38 @@ async function handle(req: Request): Promise<Response> {
 }
 
 const handler = async (req: Request) => {
+  let response: Response
   try {
-    return await handle(req)
+    response = await handle(req)
   } catch (error) {
     if (error instanceof ApiError) {
-      return errorResponse(error)
+      response = errorResponse(error)
+    } else {
+      console.error(error)
+      response = errorResponse(
+        new ApiError(500, 'INTERNAL_ERROR', '서버 오류가 발생했습니다.'),
+      )
     }
-    console.error(error)
-    return errorResponse(
-      new ApiError(500, 'INTERNAL_ERROR', '서버 오류가 발생했습니다.'),
-    )
   }
+
+  if (req.method.toUpperCase() === 'OPTIONS') {
+    return response
+  }
+
+  const cors = resolveCorsHeaders(req, false)
+  if (Object.keys(cors.headers).length === 0) {
+    return response
+  }
+
+  const headers = new Headers(response.headers)
+  for (const [key, value] of Object.entries(cors.headers)) {
+    headers.set(key, value)
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
 }
 
 // Supabase Edge Runtime에서는 포트를 직접 잡지 않고 런타임에 맡깁니다.

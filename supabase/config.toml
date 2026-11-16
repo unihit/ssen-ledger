@@ -1,6 +1,8 @@
 project_id = "vetwwxmujaiwwwpjurpr"
 
 [auth]
+# 개인/가족 전용 앱이므로 신규 회원가입을 차단합니다.
+enable_signup = false
 site_url = "https://unihit.github.io/ssen-ledger/"
 additional_redirect_urls = [
   "http://localhost:5173",
@@ -12,6 +14,9 @@ additional_redirect_urls = [
   "https://unihit.github.io/ssen-ledger",
   "https://unihit.github.io/ssen-ledger/",
 ]
+
+[auth.email]
+enable_confirmations = true
 
 [functions.agent-api]
 # Muse는 Supabase JWT 대신 자체 Bearer API 키로 인증합니다.
