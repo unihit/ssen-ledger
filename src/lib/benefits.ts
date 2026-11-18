@@ -7,7 +7,6 @@ import type {
   PerformanceTier,
   Transaction,
 } from '../types'
-import { isExcludedFromSpend } from './analytics'
 import { shiftMonth } from './date'
 import { ratePercent, won, wonShort } from './format'
 
@@ -92,20 +91,77 @@ function isPlaceholderMerchant(normalized: string): boolean {
   return GENERIC_CATEGORY_PLACEHOLDERS.has(normalized)
 }
 
+const TAXI_MERCHANT_RE =
+  /카카오\s*t|카카오\s*택시|kakao\s*t|택시|우버|uber|타다|tada|아이엠택시|온다택시|마카롱택시|티머니\s*onda/i
+const TAXI_MEMO_RE = /택시/i
+const GENERAL_TRANSPORT_RE = /코레일|korail|ktx|고속버스|코버스/i
+
+export function isTaxiTransaction(tx: {
+  merchant?: string | null
+  memo?: string | null
+}): boolean {
+  const m = (tx.merchant ?? '').trim()
+  const memo = (tx.memo ?? '').trim()
+  return TAXI_MERCHANT_RE.test(m) || TAXI_MEMO_RE.test(memo)
+}
+
+export function isGeneralTransportTransaction(tx: {
+  merchant?: string | null
+  memo?: string | null
+}): boolean {
+  if (isTaxiTransaction(tx)) return true
+  const m = (tx.merchant ?? '').trim()
+  const memo = (tx.memo ?? '').trim()
+  return GENERAL_TRANSPORT_RE.test(m) || GENERAL_TRANSPORT_RE.test(memo)
+}
+
+function isExcludedFromBenefit(transaction: Transaction): boolean {
+  if (transaction.excluded) return true
+  if (
+    transaction.categoryId === 'savings' ||
+    transaction.categoryId === 'giftcard' ||
+    transaction.categoryMinor === '상품권'
+  ) {
+    return true
+  }
+  if (
+    transaction.merchant &&
+    /실적\s*채움|문화상품권/i.test(transaction.merchant)
+  ) {
+    return true
+  }
+  if (
+    transaction.memo &&
+    /실적\s*채우기|전월실적\s*더미|노카운트|문화상품권/i.test(transaction.memo)
+  ) {
+    return true
+  }
+  return false
+}
+
 export function ruleMatchesMerchant(
   rule: BenefitRule,
   merchant?: string,
+  memo?: string,
 ): boolean {
   if (!rule.merchants || rule.merchants.length === 0) return true
   const normMerchant = normalizeText(merchant)
-  if (isPlaceholderMerchant(normMerchant)) return false
+  const normMemo = normalizeText(memo)
+  if (isPlaceholderMerchant(normMerchant) && !normMemo) return false
 
-  const merchantForms = expandMerchantAliases(normMerchant)
+  const formsToCheck = [
+    ...(!isPlaceholderMerchant(normMerchant)
+      ? expandMerchantAliases(normMerchant)
+      : []),
+    ...expandMerchantAliases(normMemo),
+  ]
+  if (formsToCheck.length === 0) return false
+
   for (const keyword of rule.merchants) {
     const normKw = normalizeText(keyword)
     if (!normKw) continue
     const kwForms = expandMerchantAliases(normKw)
-    for (const mf of merchantForms) {
+    for (const mf of formsToCheck) {
       for (const kf of kwForms) {
         if (mf === kf) return true
         if (mf.length >= 2 && kf.length >= 2 && (mf.includes(kf) || kf.includes(mf))) {
@@ -132,6 +188,29 @@ function singleTransactionRawBenefit(rule: BenefitRule, amount: number): number 
   return base
 }
 
+function ruleMatchesTransactionCategory(
+  rule: BenefitRule,
+  transaction: Transaction,
+): boolean {
+  if (rule.id === 'ibk-kpass-transport') {
+    return (
+      rule.categoryId === transaction.categoryId &&
+      !isGeneralTransportTransaction(transaction)
+    )
+  }
+  if (rule.id === 'ibk-kpass-travel') {
+    return (
+      (transaction.categoryId === 'transport' ||
+        transaction.categoryId === 'travel') &&
+      isGeneralTransportTransaction(transaction)
+    )
+  }
+  return (
+    rule.categoryId === transaction.categoryId &&
+    ruleMatchesMerchant(rule, transaction.merchant, transaction.memo)
+  )
+}
+
 /**
  * 카테고리 혜택을 우선 적용하고, 카테고리 혜택이 없을 때만 결제수단 혜택을 찾는다.
  * 같은 카테고리에 가맹점 지정 혜택과 일반 혜택이 함께 있으면 가맹점 지정 혜택을 우선한다.
@@ -140,10 +219,8 @@ function ruleForTransaction(
   rules: BenefitRule[],
   transaction: Transaction,
 ): BenefitRule | null {
-  const categoryMatches = rules.filter(
-    (rule) =>
-      rule.categoryId === transaction.categoryId &&
-      ruleMatchesMerchant(rule, transaction.merchant),
+  const categoryMatches = rules.filter((rule) =>
+    ruleMatchesTransactionCategory(rule, transaction),
   )
   if (categoryMatches.length > 0) {
     return (
@@ -155,7 +232,7 @@ function ruleForTransaction(
   const methodMatches = rules.filter(
     (rule) =>
       rule.paymentMethods?.includes(transaction.paymentMethod ?? '') &&
-      ruleMatchesMerchant(rule, transaction.merchant),
+      ruleMatchesMerchant(rule, transaction.merchant, transaction.memo),
   )
   if (methodMatches.length > 0) {
     return (
@@ -256,7 +333,7 @@ export function computeCardMonth(
   const countedByRule = new Set<Transaction>()
 
   for (const transaction of monthTransactions) {
-    if (isExcludedFromSpend(transaction)) {
+    if (isExcludedFromBenefit(transaction)) {
       // 실적 채움용 결제(문화상품권 등)는 실적으로 인정되나 카드사 혜택(할인/적립) 계산 대상에서는 제외
       continue
     }
@@ -266,6 +343,14 @@ export function computeCardMonth(
 
     // 카테고리/결제수단 혜택에 잡힌 결제는 기본 적립에서 제외한다.
     countedByRule.add(transaction)
+    if (
+      rule.id === 'ibk-kpass-travel' &&
+      isTaxiTransaction(transaction) &&
+      transaction.paymentMethod !== '신용카드'
+    ) {
+      // 택시 앱 결제/간편결제는 일반교통 할인 제외 (실물 신용카드 현장결제만 인정)
+      continue
+    }
     if (rule.minTransactionAmount && transaction.amount < rule.minTransactionAmount) {
       continue
     }
@@ -297,7 +382,7 @@ export function computeCardMonth(
   const baseSpend =
     performanceMet && card.baseRate > 0
       ? monthTransactions.reduce((total, transaction) => {
-          if (isExcludedFromSpend(transaction)) return total
+          if (isExcludedFromBenefit(transaction)) return total
           if (countedByRule.has(transaction)) return total
           return total + transaction.amount
         }, 0)
@@ -538,7 +623,13 @@ export function recommendCards(
       reason = `전월 실적 ${wonShort(before.card.minSpendForBenefits)} 미달`
     } else if (applicable) {
       const rule = applicable.rule
-      if (rule.minTransactionAmount && amount < rule.minTransactionAmount) {
+      if (
+        rule.id === 'ibk-kpass-travel' &&
+        isTaxiTransaction(simulated) &&
+        simulated.paymentMethod !== '신용카드'
+      ) {
+        reason = '택시는 실물 신용카드 현장결제만 5% 할인 적용 (간편결제·앱결제 제외)'
+      } else if (rule.minTransactionAmount && amount < rule.minTransactionAmount) {
         reason = `건당 ${won(rule.minTransactionAmount)} 이상 결제 시 적용`
       } else if (rule.maxCountPerMonth && applicable.count >= rule.maxCountPerMonth) {
         reason = `${ruleLabel} 월 ${rule.maxCountPerMonth}회 한도 소진`

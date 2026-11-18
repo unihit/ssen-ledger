@@ -2955,8 +2955,33 @@ interface BenefitRule {
   monthlyCap: number
   minSpend?: number
   minTransactionAmount?: number
+  maxBenefitPerTx?: number
+  fixedBenefit?: number
+  maxCountPerMonth?: number
+  merchants?: string[]
   paymentMethods?: string[]
   note?: string
+}
+
+const TAXI_MERCHANT_RE =
+  /카카오\s*t|카카오\s*택시|kakao\s*t|택시|우버|uber|타다|tada|아이엠택시|온다택시|마카롱택시|티머니\s*onda/i
+const TAXI_MEMO_RE = /택시/i
+const GENERAL_TRANSPORT_RE = /코레일|korail|ktx|고속버스|코버스/i
+
+function isTaxiTransaction(merchant?: string | null, memo?: string | null): boolean {
+  const m = (merchant ?? '').trim()
+  const memoText = (memo ?? '').trim()
+  return TAXI_MERCHANT_RE.test(m) || TAXI_MEMO_RE.test(memoText)
+}
+
+function isGeneralTransportTransaction(
+  merchant?: string | null,
+  memo?: string | null,
+): boolean {
+  if (isTaxiTransaction(merchant, memo)) return true
+  const m = (merchant ?? '').trim()
+  const memoText = (memo ?? '').trim()
+  return GENERAL_TRANSPORT_RE.test(m) || GENERAL_TRANSPORT_RE.test(memoText)
 }
 
 interface PerformanceTier {
@@ -3062,6 +3087,21 @@ async function fetchFullCards(householdId: string): Promise<FullCard[]> {
   return ((data ?? []) as Record<string, unknown>[]).map((row) => {
     const id = String(row.id)
     const meta = PREDEFINED_CARD_METADATA[id]
+    const rawBenefits = Array.isArray(row.benefits)
+      ? (row.benefits as BenefitRule[])
+      : []
+    const benefits =
+      id === 'ibk-kpass-credit'
+        ? rawBenefits.map((rule) =>
+            rule.id === 'ibk-kpass-travel'
+              ? {
+                  ...rule,
+                  maxBenefitPerTx: rule.maxBenefitPerTx ?? 2_500,
+                  maxCountPerMonth: rule.maxCountPerMonth ?? 2,
+                }
+              : rule,
+          )
+        : rawBenefits
     return {
       id,
       name: String(row.name ?? ''),
@@ -3071,7 +3111,7 @@ async function fetchFullCards(householdId: string): Promise<FullCard[]> {
       monthlyTotalCap: Number(row.monthly_total_cap) || 0,
       baseRate: Number(row.base_rate) || 0,
       baseCap: Number(row.base_cap) || 0,
-      benefits: Array.isArray(row.benefits) ? (row.benefits as BenefitRule[]) : [],
+      benefits,
       performanceTiers: Array.isArray(row.performance_tiers)
         ? (row.performance_tiers as PerformanceTier[])
         : [],
@@ -3086,9 +3126,32 @@ function findRuleForTx(
   rules: BenefitRule[],
   categoryId: string,
   paymentMethod?: string,
+  merchant?: string | null,
+  memo?: string | null,
 ): BenefitRule | null {
-  const categoryRule = rules.find((rule) => rule.categoryId === categoryId)
-  if (categoryRule) return categoryRule
+  const isGeneral = isGeneralTransportTransaction(merchant, memo)
+
+  if (isGeneral && (categoryId === 'transport' || categoryId === 'travel')) {
+    const travelRule = rules.find((rule) => rule.id === 'ibk-kpass-travel')
+    if (travelRule) return travelRule
+  }
+
+  const categoryMatches = rules.filter((rule) => {
+    if (rule.id === 'ibk-kpass-transport') {
+      return rule.categoryId === categoryId && !isGeneral
+    }
+    if (rule.id === 'ibk-kpass-travel') {
+      return (categoryId === 'transport' || categoryId === 'travel') && isGeneral
+    }
+    return rule.categoryId === categoryId
+  })
+
+  if (categoryMatches.length > 0) {
+    return (
+      categoryMatches.find((rule) => rule.id === 'ibk-kpass-travel') ??
+      categoryMatches[0]
+    )
+  }
 
   return (
     rules.find((rule) => rule.paymentMethods?.includes(paymentMethod ?? '')) ?? null
@@ -3173,35 +3236,62 @@ function computeCardMonthEdge(
     : []
 
   const ruleSpend = new Map<string, number>(applicableRules.map((r) => [r.id, 0]))
+  const ruleRaw = new Map<string, number>(applicableRules.map((r) => [r.id, 0]))
+  const ruleCount = new Map<string, number>(applicableRules.map((r) => [r.id, 0]))
   const countedByRule = new Set<Record<string, unknown>>()
 
   for (const t of monthTransactions) {
     const catId = String(t.category_id || t.categoryId || '')
     const payMethod = t.payment_method ? String(t.payment_method) : undefined
+    const merchant = t.merchant ? String(t.merchant) : undefined
+    const memo = t.memo ? String(t.memo) : undefined
     const amt = Number(t.effective_amount ?? t.amount) || 0
 
     if (
       catId === 'giftcard' ||
       catId === 'savings' ||
       Boolean(t.excluded) ||
-      (t.merchant && /실적\s*채움/i.test(String(t.merchant)))
+      (merchant && /실적\s*채움/i.test(merchant))
     ) {
       continue
     }
 
-    const rule = findRuleForTx(applicableRules, catId, payMethod)
+    const rule = findRuleForTx(applicableRules, catId, payMethod, merchant, memo)
     if (!rule) continue
 
     countedByRule.add(t)
+    if (
+      rule.id === 'ibk-kpass-travel' &&
+      isTaxiTransaction(merchant, memo) &&
+      payMethod !== '신용카드'
+    ) {
+      continue
+    }
     if (rule.minTransactionAmount && amt < rule.minTransactionAmount) {
       continue
     }
+    const currentCount = ruleCount.get(rule.id) ?? 0
+    if (rule.maxCountPerMonth && currentCount >= rule.maxCountPerMonth) {
+      continue
+    }
+
+    const base =
+      rule.fixedBenefit && rule.fixedBenefit > 0
+        ? Math.min(rule.fixedBenefit, amt)
+        : Math.round(amt * rule.rate)
+    const txRaw =
+      rule.maxBenefitPerTx && rule.maxBenefitPerTx > 0
+        ? Math.min(base, rule.maxBenefitPerTx)
+        : base
+
     ruleSpend.set(rule.id, (ruleSpend.get(rule.id) ?? 0) + amt)
+    ruleRaw.set(rule.id, (ruleRaw.get(rule.id) ?? 0) + txRaw)
+    ruleCount.set(rule.id, currentCount + 1)
   }
 
   const rows = applicableRules.map((rule) => {
     const spend = ruleSpend.get(rule.id) ?? 0
-    const raw = Math.round(spend * rule.rate)
+    const raw = ruleRaw.get(rule.id) ?? 0
     const applied = Math.min(raw, rule.monthlyCap)
     return {
       rule,
@@ -3295,7 +3385,7 @@ async function recommendCards(
   const { data: txData, error: txError } = await db()
     .from('transactions')
     .select(
-      'id, date, merchant, amount, effective_amount, category_id, card_id, payment_method, status, excluded',
+      'id, date, merchant, memo, amount, effective_amount, category_id, category_minor, category_group, card_id, payment_method, status, excluded',
     )
     .eq('household_id', householdId)
     .eq('status', 'active')
@@ -3309,6 +3399,8 @@ async function recommendCards(
   let bestCard: Record<string, unknown> | null = null
   let eventCard: Record<string, unknown> | null = null
 
+  const memoInput = input.memo ? String(input.memo).trim() : ''
+
   for (const card of cards) {
     const before = computeCardMonthEdge(card, transactions, month)
     const defaultMethod = card.kind === 'check' ? '체크카드' : '신용카드'
@@ -3317,6 +3409,7 @@ async function recommendCards(
       id: '__sim__',
       date: `${month}-01`,
       merchant: merchant || '결제 예정',
+      memo: memoInput,
       amount,
       effective_amount: amount,
       category_id: categoryId,
@@ -3329,7 +3422,13 @@ async function recommendCards(
     const after = computeCardMonthEdge(card, [...transactions, simulatedTx], month)
     const gain = Math.max(0, after.totalBenefit - before.totalBenefit)
 
-    const targetRule = findRuleForTx(card.benefits, categoryId, simulatedMethod)
+    const targetRule = findRuleForTx(
+      card.benefits,
+      categoryId,
+      simulatedMethod,
+      merchant,
+      memoInput,
+    )
     const applicable = targetRule
       ? before.rows.find((r) => r.rule.id === targetRule.id)
       : null
@@ -3346,7 +3445,16 @@ async function recommendCards(
     if (!before.performanceMet) {
       reason = `전월 실적 ${wonShort(card.minSpendForBenefits)} 미달`
     } else if (applicable) {
-      if (applicable.rule.minTransactionAmount && amount < applicable.rule.minTransactionAmount) {
+      if (
+        applicable.rule.id === 'ibk-kpass-travel' &&
+        isTaxiTransaction(merchant, memoInput) &&
+        simulatedMethod !== '신용카드'
+      ) {
+        reason = '택시는 실물 신용카드 현장결제만 5% 할인 적용 (간편결제·앱결제 제외)'
+      } else if (
+        applicable.rule.minTransactionAmount &&
+        amount < applicable.rule.minTransactionAmount
+      ) {
         reason = `건당 ${won(applicable.rule.minTransactionAmount)} 이상 결제 시 적용`
       } else if (gain > 0) {
         reason = `${ruleLabel} ${Math.round(applicable.rule.rate * 100)}% · +${won(gain)}`
@@ -3486,7 +3594,7 @@ async function getCardsStatus(householdId: string, monthInput?: string | null) {
   const { data: txData, error: txError } = await db()
     .from('transactions')
     .select(
-      'id, date, merchant, amount, effective_amount, category_id, card_id, payment_method, status, excluded',
+      'id, date, merchant, memo, amount, effective_amount, category_id, category_minor, category_group, card_id, payment_method, status, excluded',
     )
     .eq('household_id', householdId)
     .eq('status', 'active')
