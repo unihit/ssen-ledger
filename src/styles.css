@@ -1352,15 +1352,85 @@ select:focus {
 
 .recommender__form {
   display: grid;
-  grid-template-columns: minmax(140px, 1.2fr) minmax(130px, 1fr) minmax(160px, 1.5fr);
+  grid-template-columns: minmax(135px, 1fr) minmax(195px, 1.25fr) minmax(150px, 1.2fr);
   gap: 10px;
   align-items: center;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .recommender__form select {
   width: 100%;
   min-width: 0;
+}
+
+.recommender__merchants {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.recommender__merchants-label {
+  flex: 0 0 auto;
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.recommender__merchant-chips {
+  display: flex;
+  flex: 1 1 240px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.recommender__merchant-chips .chip {
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 11.5px;
+}
+
+.recommender__merchant-chips .chip.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.recommender__merchant-input {
+  display: flex;
+  flex: 0 1 210px;
+  align-items: center;
+  gap: 6px;
+  min-width: 160px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  transition: border-color 0.15s ease;
+}
+
+.recommender__merchant-input:focus-within {
+  border-color: var(--accent);
+}
+
+.recommender__merchant-input input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.recommender__merchant-input input::placeholder {
+  color: var(--text-3);
 }
 
 .recommender__hint {
@@ -1462,26 +1532,87 @@ select:focus {
 
 .rec-row__main strong {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   font-size: 13px;
+}
+
+.rec-row__badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
 }
 
 .rec-row__main p {
   margin-top: 2px;
+  color: var(--text-2);
+  font-size: 11.5px;
+}
+
+.rec-row__detail {
+  display: block;
+  margin-top: 2px;
   color: var(--text-3);
-  font-size: 11px;
+  font-size: 10.5px;
+}
+
+.rec-row__side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 
 .rec-row__gain {
   color: var(--accent);
   font-size: 13.5px;
   font-weight: 750;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .rec-row:not(.is-best) .rec-row__gain {
   color: var(--text-2);
+}
+
+.recommender__more-btn {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.recommender__opportunity {
+  margin-top: 12px;
+  padding: 11px 13px;
+  border: 1px dashed rgba(49, 130, 246, 0.35);
+  border-radius: 13px;
+  background: rgba(234, 242, 255, 0.45);
+}
+
+.recommender__opportunity p {
+  margin-bottom: 8px;
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.recommender__opportunity-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.recommender__opportunity-chips .chip {
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 11px;
+}
+
+.recommender__opportunity-chips .chip strong {
+  color: var(--accent);
+  font-weight: 750;
 }
 
 /* ---------- card sort bar ---------- */
@@ -3659,8 +3790,39 @@ select:focus {
   font-weight: 650;
 }
 
-.rule-editor__row + .rule-editor__row {
+.rule-editor__item + .rule-editor__item {
   border-top: 1px solid var(--line);
+}
+
+.rule-editor__subrow {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr;
+  gap: 8px;
+  padding: 0 12px 10px;
+}
+
+.rule-editor__subrow-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.rule-editor__subrow-field span {
+  color: var(--text-3);
+  font-size: 9.5px;
+  font-weight: 650;
+}
+
+.rule-editor__subrow-field input[type='text'] {
+  padding: 6px 8px;
+  font-size: 11px;
+  text-align: left;
+}
+
+.rule-editor__subrow-field input[type='number'] {
+  padding: 6px 8px;
+  font-size: 11px;
 }
 
 .rule-editor__name {
@@ -4359,9 +4521,8 @@ select:focus {
   }
 
   .rec-row__main p {
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    white-space: normal;
+    word-break: keep-all;
   }
 
   .recommender__form {
@@ -4371,6 +4532,18 @@ select:focus {
 
   .recommender__form select {
     width: 100%;
+  }
+
+  .recommender__merchant-input {
+    flex: 1 1 100%;
+  }
+
+  .rule-editor__subrow {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .rule-editor__subrow-field--wide {
+    grid-column: 1 / -1;
   }
 
   .about {

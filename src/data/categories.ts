@@ -44,6 +44,24 @@ export const BUDGET_CATEGORIES = SPENDING_CATEGORIES.filter(
   (category) => !BUDGET_EXCLUDED_CATEGORIES.has(category.id),
 )
 
+/** 카드 추천에서 제외할 카테고리 (결제방식 중복·현금성·미사용 항목) */
+export const RECOMMENDER_EXCLUDED_CATEGORIES = new Set<CategoryId>([
+  'giftcard',
+  'simplepay',
+  'fuel',
+  'telecom',
+  'housing',
+  'events',
+  'dues',
+  'donation',
+  'etc',
+])
+
+/** 결제 전 카드 추천 드롭다운에 표시할 주요 카테고리 */
+export const RECOMMENDER_CATEGORIES = SPENDING_CATEGORIES.filter(
+  (category) => !RECOMMENDER_EXCLUDED_CATEGORIES.has(category.id),
+)
+
 export function isSavingsCategory(
   categoryId: CategoryId | string | null | undefined,
 ): boolean {

@@ -2,17 +2,30 @@ import { useMemo, useState } from 'react'
 import { CardEditModal } from '../components/CardEditModal'
 import { Icon } from '../components/Icon'
 import { Badge, EmptyState, Progress } from '../components/ui'
-import { SPENDING_CATEGORIES, categoryOf } from '../data/categories'
-import { computeCardMonth, recommendCards, sortCards } from '../lib/benefits'
+import { RECOMMENDER_CATEGORIES, categoryOf } from '../data/categories'
+import {
+  computeCardMonth,
+  merchantChipsForCategory,
+  merchantOpportunitiesForCategory,
+  recommendCards,
+  sortCards,
+  type RecommendPaymentMode,
+} from '../lib/benefits'
 import { ratePercent, won, wonShort } from '../lib/format'
 import { useApp } from '../store'
-import type { Card, CardSortMode, CategoryId } from '../types'
+import type { Card, CardSortMode, CategoryId, TransactionDraft } from '../types'
 
-export function CardsPage() {
+export function CardsPage({
+  onQuickAdd,
+}: {
+  onQuickAdd?: (draft: TransactionDraft) => void
+}) {
   const { state, month, toggleCard, toggleFavoriteCard, setCardSortMode } = useApp()
   const [recCategory, setRecCategory] = useState<CategoryId>('food')
-  const [recPaymentMethod, setRecPaymentMethod] = useState<'card' | 'simplepay'>('card')
+  const [recPaymentMode, setRecPaymentMode] = useState<RecommendPaymentMode>('auto')
   const [recAmount, setRecAmount] = useState('30000')
+  const [recMerchant, setRecMerchant] = useState('')
+  const [showAllRecs, setShowAllRecs] = useState(false)
   const [editor, setEditor] = useState<{ card?: Card } | null>(null)
 
   const sortMode: CardSortMode = state.settings.cardSortMode ?? 'requirement'
@@ -28,15 +41,66 @@ export function CardsPage() {
   )
 
   const numericAmount = Number(recAmount.replace(/[^\d]/g, '')) || 0
+  const merchantChips = useMemo(
+    () => merchantChipsForCategory(state.cards, recCategory),
+    [state.cards, recCategory],
+  )
   const recommendations = useMemo(
     () =>
       recommendCards(state.cards, state.transactions, month, {
         categoryId: recCategory,
         amount: numericAmount,
-        paymentMethod: recPaymentMethod === 'simplepay' ? '간편결제' : undefined,
+        merchant: recMerchant.trim() || undefined,
+        paymentMode: recPaymentMode,
       }),
-    [state.cards, state.transactions, month, recCategory, numericAmount, recPaymentMethod],
+    [
+      state.cards,
+      state.transactions,
+      month,
+      recCategory,
+      numericAmount,
+      recMerchant,
+      recPaymentMode,
+    ],
   )
+
+  const bestGeneralGain = recommendations[0]?.gain ?? 0
+  const merchantOpportunities = useMemo(
+    () =>
+      recMerchant.trim() || numericAmount <= 0
+        ? []
+        : merchantOpportunitiesForCategory(
+            state.cards,
+            state.transactions,
+            month,
+            {
+              categoryId: recCategory,
+              amount: numericAmount,
+              paymentMode: recPaymentMode,
+            },
+            bestGeneralGain,
+          ),
+    [
+      state.cards,
+      state.transactions,
+      month,
+      recCategory,
+      numericAmount,
+      recMerchant,
+      recPaymentMode,
+      bestGeneralGain,
+    ],
+  )
+
+  const visibleRecommendations = showAllRecs
+    ? recommendations
+    : recommendations.slice(0, 3)
+
+  const handleCategoryChange = (categoryId: CategoryId) => {
+    setRecCategory(categoryId)
+    setRecMerchant('')
+    setShowAllRecs(false)
+  }
 
   return (
     <div className="page">
@@ -63,31 +127,32 @@ export function CardsPage() {
             <h2>
               <Icon name="sparkles" size={19} /> 결제 전, 가장 쎈 카드
             </h2>
-            <p>실적과 남은 한도까지 계산해서 추천해요</p>
+            <p>실적·남은 한도·가맹점 조건까지 계산해서 추천해요</p>
           </div>
         </header>
 
         <div className="recommender__form">
           <select
             value={recCategory}
-            onChange={(event) => setRecCategory(event.target.value as CategoryId)}
+            onChange={(event) => handleCategoryChange(event.target.value as CategoryId)}
             aria-label="결제 카테고리"
           >
-            {SPENDING_CATEGORIES.map((category) => (
+            {RECOMMENDER_CATEGORIES.map((category) => (
               <option key={category.id} value={category.id}>
                 {category.emoji} {category.label}
               </option>
             ))}
           </select>
           <select
-            value={recPaymentMethod}
+            value={recPaymentMode}
             onChange={(event) =>
-              setRecPaymentMethod(event.target.value as 'card' | 'simplepay')
+              setRecPaymentMode(event.target.value as RecommendPaymentMode)
             }
             aria-label="결제 방식"
           >
-            <option value="card">💳 일반 카드</option>
-            <option value="simplepay">⚡ 간편결제</option>
+            <option value="auto">✨ 최적 결제방식 자동 추천</option>
+            <option value="card">💳 일반 카드 결제만</option>
+            <option value="simplepay">⚡ 간편결제(페이)만</option>
           </select>
           <div className="amount-input amount-input--compact">
             <input
@@ -103,33 +168,141 @@ export function CardsPage() {
           </div>
         </div>
 
-        {numericAmount > 0 && recommendations.length > 0 ? (
-          <ol className="rec-list">
-            {recommendations.slice(0, 3).map((recommendation, index) => (
-              <li
-                className={`rec-row${index === 0 ? ' is-best' : ''}`}
-                key={recommendation.card.id}
+        <div className="recommender__merchants">
+          <span className="recommender__merchants-label">사용처</span>
+          <div className="recommender__merchant-chips">
+            <button
+              type="button"
+              className={`chip${recMerchant === '' ? ' is-active' : ''}`}
+              onClick={() => setRecMerchant('')}
+            >
+              전체 · 일반 가맹점
+            </button>
+            {merchantChips.map((chip) => (
+              <button
+                key={chip}
+                type="button"
+                className={`chip${recMerchant === chip ? ' is-active' : ''}`}
+                onClick={() => setRecMerchant(chip)}
               >
-                <span className="rec-row__rank">{index + 1}</span>
-                <span
-                  className="rec-row__dot"
-                  style={{
-                    background: `linear-gradient(135deg, ${recommendation.card.colorFrom}, ${recommendation.card.colorTo})`,
-                  }}
-                />
-                <div className="rec-row__main">
-                  <strong>
-                    {recommendation.card.name}
-                    {index === 0 && <Badge tone="accent">1순위</Badge>}
-                  </strong>
-                  <p>{recommendation.reason}</p>
-                </div>
-                <span className="rec-row__gain">
-                  {recommendation.gain > 0 ? `+${won(recommendation.gain)}` : '-'}
-                </span>
-              </li>
+                {chip}
+              </button>
             ))}
-          </ol>
+          </div>
+          <div className="recommender__merchant-input">
+            <input
+              type="text"
+              value={recMerchant}
+              onChange={(event) => setRecMerchant(event.target.value)}
+              placeholder="직접 입력 (예: 스타벅스, 쿠팡)"
+              aria-label="결제 사용처 직접 입력"
+            />
+            {recMerchant && (
+              <button
+                type="button"
+                className="search__clear"
+                onClick={() => setRecMerchant('')}
+                aria-label="사용처 초기화"
+              >
+                <Icon name="close" size={12} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {numericAmount > 0 && recommendations.length > 0 ? (
+          <>
+            <ol className="rec-list">
+              {visibleRecommendations.map((recommendation, index) => (
+                <li
+                  className={`rec-row${index === 0 ? ' is-best' : ''}`}
+                  key={recommendation.card.id}
+                >
+                  <span className="rec-row__rank">{index + 1}</span>
+                  <span
+                    className="rec-row__dot"
+                    style={{
+                      background: `linear-gradient(135deg, ${recommendation.card.colorFrom}, ${recommendation.card.colorTo})`,
+                    }}
+                  />
+                  <div className="rec-row__main">
+                    <strong>
+                      <span>{recommendation.card.name}</span>
+                      <span className="rec-row__badges">
+                        {index === 0 && recommendation.gain > 0 && (
+                          <Badge tone="accent">1순위</Badge>
+                        )}
+                        {recommendation.strategyBadge && (
+                          <Badge tone={recommendation.strategyBadge.tone}>
+                            {recommendation.strategyBadge.label}
+                          </Badge>
+                        )}
+                      </span>
+                    </strong>
+                    <p>{recommendation.reason}</p>
+                    {recommendation.detailNote && (
+                      <small className="rec-row__detail">{recommendation.detailNote}</small>
+                    )}
+                  </div>
+                  <div className="rec-row__side">
+                    <span className="rec-row__gain">
+                      {recommendation.gain > 0 ? `+${won(recommendation.gain)}` : '0원'}
+                    </span>
+                    {onQuickAdd && (
+                      <button
+                        type="button"
+                        className="btn btn--tiny btn--ghost"
+                        onClick={() =>
+                          onQuickAdd({
+                            categoryId: recCategory,
+                            amount: numericAmount,
+                            merchant: recMerchant.trim() || undefined,
+                            cardId: recommendation.card.id,
+                            paymentMethod: recommendation.recommendedPaymentMethod,
+                          })
+                        }
+                      >
+                        기록
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+
+            {recommendations.length > 3 && (
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm recommender__more-btn"
+                onClick={() => setShowAllRecs((prev) => !prev)}
+              >
+                {showAllRecs
+                  ? '상위 3장만 보기'
+                  : `전체 카드 비교 보기 (${recommendations.length}장)`}
+              </button>
+            )}
+
+            {recMerchant.trim() === '' && merchantOpportunities.length > 0 && (
+              <div className="recommender__opportunity">
+                <p>💡 특정 가맹점 결제인가요? 선택하면 더 큰 혜택을 비교해요</p>
+                <div className="recommender__opportunity-chips">
+                  {merchantOpportunities.slice(0, 6).map((opp) => (
+                    <button
+                      key={opp.merchant}
+                      type="button"
+                      className="chip"
+                      onClick={() => setRecMerchant(opp.merchant)}
+                    >
+                      <span>{opp.merchant}</span>
+                      <strong>
+                        {opp.cardName} +{won(opp.gain)}
+                      </strong>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <p className="recommender__hint">
             {numericAmount > 0
@@ -401,11 +574,21 @@ export function CardsPage() {
                     const usage = usageMap.get(rule.id)
                     const category = categoryOf(rule.categoryId)
                     const condition = [
+                      ...(rule.merchants?.length
+                        ? [
+                            `${rule.merchants.slice(0, 3).join('·')}${
+                              rule.merchants.length > 3 ? ' 등' : ''
+                            } 전용`,
+                          ]
+                        : []),
                       ...(rule.paymentMethods ?? [])
                         .filter((method) => method !== category.label)
                         .map((method) => `결제수단 ${method}`),
                       ...(rule.minTransactionAmount
                         ? [`건당 ${wonShort(rule.minTransactionAmount)} 이상`]
+                        : []),
+                      ...(rule.maxBenefitPerTx
+                        ? [`건당 최대 ${wonShort(rule.maxBenefitPerTx)}`]
                         : []),
                     ].join(' · ')
                     return (
@@ -418,7 +601,9 @@ export function CardsPage() {
                             <small className="rule-list__condition">{condition}</small>
                           )}
                         </span>
-                        <span className="rule-list__rate">{ratePercent(rule.rate)}</span>
+                        <span className="rule-list__rate">
+                          {rule.fixedBenefit ? won(rule.fixedBenefit) : ratePercent(rule.rate)}
+                        </span>
                         <span className="rule-list__cap">
                           {usage ? `${won(usage.applied)} / ` : ''}
                           {won(rule.monthlyCap)}

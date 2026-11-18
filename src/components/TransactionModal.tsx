@@ -15,7 +15,7 @@ import { todayISO } from '../lib/date'
 import { won } from '../lib/format'
 import { SAVINGS_SHEET } from '../lib/savings'
 import { useApp } from '../store'
-import type { CategoryId, FixedExpense, Transaction } from '../types'
+import type { CategoryId, FixedExpense, Transaction, TransactionDraft } from '../types'
 import { Icon } from './Icon'
 import { Modal } from './ui'
 
@@ -29,12 +29,14 @@ export function TransactionModal({
   initial,
   fixedExpense,
   candidates = [],
+  draft,
   month,
   onClose,
 }: {
   initial?: Transaction
   fixedExpense?: FixedExpense
   candidates?: Transaction[]
+  draft?: TransactionDraft
   month: string
   onClose: () => void
 }) {
@@ -47,17 +49,19 @@ export function TransactionModal({
     setMonth,
   } = useApp()
   const startingCategoryId =
-    initial?.categoryId ?? fixedExpense?.categoryId ?? 'food'
+    initial?.categoryId ?? fixedExpense?.categoryId ?? draft?.categoryId ?? 'food'
   const startingSavings = isSavingsCategory(startingCategoryId)
   const [amount, setAmount] = useState(
     initial
       ? String(initial.amount)
       : fixedExpense
         ? String(fixedExpense.amount)
-        : '',
+        : draft?.amount
+          ? String(draft.amount)
+          : '',
   )
   const [merchant, setMerchant] = useState(
-    initial?.merchant ?? fixedExpense?.name ?? '',
+    initial?.merchant ?? fixedExpense?.name ?? draft?.merchant ?? '',
   )
   const [date, setDate] = useState(
     initial?.date ??
@@ -67,7 +71,7 @@ export function TransactionModal({
   )
   const [categoryId, setCategoryId] = useState<CategoryId>(startingCategoryId)
   const [cardId, setCardId] = useState<string | null>(
-    initial?.cardId ?? fixedExpense?.cardId ?? null,
+    initial?.cardId ?? fixedExpense?.cardId ?? draft?.cardId ?? null,
   )
   const selectedCard = state.cards.find((card) => card.id === cardId)
   const favoriteCardIds = useMemo(
@@ -87,8 +91,9 @@ export function TransactionModal({
     if (initial?.paymentMethod) return initial.paymentMethod
     if (fixedExpense?.paymentMethod) return fixedExpense.paymentMethod
     if (startingSavings) return '계좌이체'
+    if (draft?.paymentMethod) return draft.paymentMethod
     const initCard = state.cards.find(
-      (c) => c.id === (initial?.cardId ?? fixedExpense?.cardId),
+      (c) => c.id === (initial?.cardId ?? fixedExpense?.cardId ?? draft?.cardId),
     )
     return initCard ? defaultPaymentMethodForCard(initCard.kind) : '계좌이체'
   })
@@ -99,7 +104,7 @@ export function TransactionModal({
     }
     return (
       startingCategoryId === 'giftcard' ||
-      /포인트리|리브머니/i.test(fixedExpense?.name ?? '')
+      /포인트리|리브머니/i.test(fixedExpense?.name ?? draft?.merchant ?? '')
     )
   })
   const [excludeFromSpend, setExcludeFromSpend] = useState(() => {
@@ -109,7 +114,7 @@ export function TransactionModal({
       if (initial.categoryGroup === '집계 제외') return true
       return isExcludedFromSpend(initial)
     }
-    return false
+    return startingCategoryId === 'giftcard'
   })
   const [excluded, setExcluded] = useState(
     startingSavings
@@ -203,7 +208,8 @@ export function TransactionModal({
         : recommendCards(state.cards, state.transactions, date.slice(0, 7), {
             categoryId,
             amount: numericAmount,
-            paymentMethod,
+            merchant: merchant.trim() || undefined,
+            paymentMode: paymentMethod === '간편결제' ? 'simplepay' : 'auto',
           }),
     [
       state.cards,
@@ -211,6 +217,7 @@ export function TransactionModal({
       date,
       categoryId,
       numericAmount,
+      merchant,
       savingsCategory,
       cardApplicable,
       paymentMethod,
@@ -221,18 +228,15 @@ export function TransactionModal({
   const selected = recommendations.find((item) => item.card.id === cardId)
   const selectedGain = selected?.gain ?? 0
   const extraGain = best ? Math.max(0, best.gain - selectedGain) : 0
+  const bestMatched =
+    Boolean(best) &&
+    cardId === best.card.id &&
+    (best.gain === 0 || paymentMethod === best.recommendedPaymentMethod)
 
   const handleApplyBest = () => {
     if (!best) return
     setCardId(best.card.id)
-    if (best.matchedRule?.paymentMethods?.includes('간편결제')) {
-      setPaymentMethod('간편결제')
-    } else if (
-      paymentMethod === '간편결제' &&
-      !best.matchedRule?.paymentMethods?.includes('간편결제')
-    ) {
-      setPaymentMethod(defaultPaymentMethodForCard(best.card.kind))
-    }
+    setPaymentMethod(best.recommendedPaymentMethod)
   }
 
   const handleSubmit = async (event: FormEvent) => {
@@ -607,16 +611,21 @@ export function TransactionModal({
         </div>
 
         {numericAmount > 0 && !savingsCategory && best && (
-          <div className={`recommend${cardId === best.card.id ? ' recommend--matched' : ''}`}>
+          <div className={`recommend${bestMatched ? ' recommend--matched' : ''}`}>
             <span className="recommend__icon">
               <Icon name="sparkles" size={18} />
             </span>
             <div className="recommend__body">
-              <span className="recommend__eyebrow">쎈 추천 · 예상 혜택 {won(best.gain)}</span>
+              <span className="recommend__eyebrow">
+                쎈 추천 · 예상 혜택 {won(best.gain)}
+                {best.gain > 0 && best.recommendedPaymentMethod === '간편결제'
+                  ? ' · ⚡ 간편결제 시'
+                  : ''}
+              </span>
               <strong>{best.card.name}</strong>
               <p>{best.reason}</p>
             </div>
-            {cardId !== best.card.id ? (
+            {!bestMatched ? (
               <button
                 type="button"
                 className="btn btn--tiny btn--primary"

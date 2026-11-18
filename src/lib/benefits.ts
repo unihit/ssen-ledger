@@ -1,4 +1,4 @@
-import { categoryOf } from '../data/categories'
+import { CATEGORIES, categoryOf } from '../data/categories'
 import type {
   BenefitRule,
   Card,
@@ -17,6 +17,7 @@ export interface RuleUsage {
   raw: number
   applied: number
   capLeft: number
+  count: number
 }
 
 export interface CardMonth {
@@ -47,28 +48,123 @@ export interface CardMonth {
   capped: boolean
 }
 
+const MERCHANT_ALIAS_GROUPS: string[][] = [
+  ['vips', '빕스'],
+  ['배민', '배달의민족'],
+  ['스벅', '스타벅스'],
+  ['쿠팡와우', '쿠팡로켓와우', '로켓와우'],
+  ['롯데시네마', '롯시'],
+  ['메가mgc', '메가커피'],
+  ['컴포즈', '컴포즈커피'],
+  ['gs25해군마트', '해군마트'],
+  ['아파트관리비', '관리비'],
+  ['ktx', '코레일'],
+  ['올리브영', '올영'],
+  ['gs칼텍스', '지에스칼텍스'],
+]
+
+const GENERIC_CATEGORY_PLACEHOLDERS = new Set(
+  CATEGORIES.map((category) => `${category.label.replace(/\s+/g, '').toLowerCase()}결제`),
+)
+
+function normalizeText(text?: string): string {
+  return (text ?? '').trim().toLowerCase().replace(/\s+/g, '')
+}
+
+function expandMerchantAliases(normalized: string): string[] {
+  if (!normalized) return []
+  const forms = new Set<string>([normalized])
+  for (const group of MERCHANT_ALIAS_GROUPS) {
+    for (const member of group) {
+      if (normalized.includes(member)) {
+        for (const alias of group) {
+          forms.add(normalized.replace(member, alias))
+        }
+      }
+    }
+  }
+  return [...forms]
+}
+
+function isPlaceholderMerchant(normalized: string): boolean {
+  if (!normalized) return true
+  if (normalized === '결제예정' || normalized === '결제') return true
+  return GENERIC_CATEGORY_PLACEHOLDERS.has(normalized)
+}
+
+export function ruleMatchesMerchant(
+  rule: BenefitRule,
+  merchant?: string,
+): boolean {
+  if (!rule.merchants || rule.merchants.length === 0) return true
+  const normMerchant = normalizeText(merchant)
+  if (isPlaceholderMerchant(normMerchant)) return false
+
+  const merchantForms = expandMerchantAliases(normMerchant)
+  for (const keyword of rule.merchants) {
+    const normKw = normalizeText(keyword)
+    if (!normKw) continue
+    const kwForms = expandMerchantAliases(normKw)
+    for (const mf of merchantForms) {
+      for (const kf of kwForms) {
+        if (mf === kf) return true
+        if (mf.length >= 2 && kf.length >= 2 && (mf.includes(kf) || kf.includes(mf))) {
+          return true
+        }
+      }
+    }
+  }
+  return false
+}
+
 function isCounted(transaction: Transaction): boolean {
   return !transaction.excluded && transaction.amount > 0
 }
 
+function singleTransactionRawBenefit(rule: BenefitRule, amount: number): number {
+  const base =
+    rule.fixedBenefit && rule.fixedBenefit > 0
+      ? Math.min(rule.fixedBenefit, amount)
+      : Math.round(amount * rule.rate)
+  if (rule.maxBenefitPerTx && rule.maxBenefitPerTx > 0) {
+    return Math.min(base, rule.maxBenefitPerTx)
+  }
+  return base
+}
+
 /**
  * 카테고리 혜택을 우선 적용하고, 카테고리 혜택이 없을 때만 결제수단 혜택을 찾는다.
- * 같은 결제가 두 혜택에 중복 계산되지 않도록 하기 위함이다.
+ * 같은 카테고리에 가맹점 지정 혜택과 일반 혜택이 함께 있으면 가맹점 지정 혜택을 우선한다.
  */
 function ruleForTransaction(
   rules: BenefitRule[],
   transaction: Transaction,
 ): BenefitRule | null {
-  const categoryRule = rules.find(
-    (rule) => rule.categoryId === transaction.categoryId,
+  const categoryMatches = rules.filter(
+    (rule) =>
+      rule.categoryId === transaction.categoryId &&
+      ruleMatchesMerchant(rule, transaction.merchant),
   )
-  if (categoryRule) return categoryRule
+  if (categoryMatches.length > 0) {
+    return (
+      categoryMatches.find((rule) => (rule.merchants?.length ?? 0) > 0) ??
+      categoryMatches[0]
+    )
+  }
 
-  return (
-    rules.find((rule) =>
-      rule.paymentMethods?.includes(transaction.paymentMethod ?? ''),
-    ) ?? null
+  const methodMatches = rules.filter(
+    (rule) =>
+      rule.paymentMethods?.includes(transaction.paymentMethod ?? '') &&
+      ruleMatchesMerchant(rule, transaction.merchant),
   )
+  if (methodMatches.length > 0) {
+    return (
+      methodMatches.find((rule) => (rule.merchants?.length ?? 0) > 0) ??
+      methodMatches[0]
+    )
+  }
+
+  return null
 }
 
 /** 화면에서 거래별 혜택 조건을 안내할 때 사용하는 규칙 찾기. */
@@ -151,6 +247,12 @@ export function computeCardMonth(
   const ruleSpend = new Map<string, number>(
     applicableRules.map((rule) => [rule.id, 0]),
   )
+  const ruleRaw = new Map<string, number>(
+    applicableRules.map((rule) => [rule.id, 0]),
+  )
+  const ruleCount = new Map<string, number>(
+    applicableRules.map((rule) => [rule.id, 0]),
+  )
   const countedByRule = new Set<Transaction>()
 
   for (const transaction of monthTransactions) {
@@ -167,12 +269,20 @@ export function computeCardMonth(
     if (rule.minTransactionAmount && transaction.amount < rule.minTransactionAmount) {
       continue
     }
+    const currentCount = ruleCount.get(rule.id) ?? 0
+    if (rule.maxCountPerMonth && currentCount >= rule.maxCountPerMonth) {
+      continue
+    }
+
+    const txRaw = singleTransactionRawBenefit(rule, transaction.amount)
     ruleSpend.set(rule.id, (ruleSpend.get(rule.id) ?? 0) + transaction.amount)
+    ruleRaw.set(rule.id, (ruleRaw.get(rule.id) ?? 0) + txRaw)
+    ruleCount.set(rule.id, currentCount + 1)
   }
 
   const rows: RuleUsage[] = applicableRules.map((rule) => {
     const categorySpend = ruleSpend.get(rule.id) ?? 0
-    const raw = Math.round(categorySpend * rule.rate)
+    const raw = ruleRaw.get(rule.id) ?? 0
     const applied = Math.min(raw, rule.monthlyCap)
     return {
       rule,
@@ -180,6 +290,7 @@ export function computeCardMonth(
       raw,
       applied,
       capLeft: Math.max(0, rule.monthlyCap - applied),
+      count: ruleCount.get(rule.id) ?? 0,
     }
   })
 
@@ -224,12 +335,17 @@ export function computeCardMonth(
   }
 }
 
+export type RecommendPaymentMode = 'auto' | 'card' | 'simplepay'
+
 export interface RecommendationInput {
   categoryId: CategoryId
   amount: number
   merchant?: string
   paymentMethod?: string
+  paymentMode?: RecommendPaymentMode
 }
+
+export type RecommendationBadgeTone = 'accent' | 'success' | 'warn' | 'neutral'
 
 export interface Recommendation {
   card: Card
@@ -238,12 +354,82 @@ export interface Recommendation {
   gain: number
   eligible: boolean
   matchedRule: BenefitRule | null
+  recommendedPaymentMethod: string
   reason: string
+  detailNote?: string
+  strategyBadge?: {
+    label: string
+    tone: RecommendationBadgeTone
+  }
+  partiallyCapped?: boolean
+}
+
+export interface MerchantOpportunity {
+  merchant: string
+  cardId: string
+  cardName: string
+  gain: number
+  rate: number
+  fixedBenefit?: number
+}
+
+interface CardEventProgress {
+  pending: boolean
+  remainingAmount: number
+  needsSimplePay: boolean
+  minSimplePayAmount: number
+}
+
+function cardEventProgress(
+  card: Card,
+  transactions: Transaction[],
+  month: string,
+): CardEventProgress {
+  const cardEvent = card.event
+  if (!cardEvent || `${month}-01` > cardEvent.deadline) {
+    return {
+      pending: false,
+      remainingAmount: 0,
+      needsSimplePay: false,
+      minSimplePayAmount: 10_000,
+    }
+  }
+
+  const eventTransactions = transactions.filter(
+    (t) =>
+      t.cardId === card.id &&
+      t.date >= '2026-11-01' &&
+      t.date <= cardEvent.deadline &&
+      !t.excluded &&
+      t.amount > 0,
+  )
+  const eventTotalSpend = eventTransactions.reduce((sum, t) => sum + t.amount, 0)
+  const minSimplePay = cardEvent.minSimplePayAmount ?? 10_000
+  const hasSimplePayMet = cardEvent.requireSimplePay
+    ? eventTransactions.some(
+        (t) => t.paymentMethod === '간편결제' && t.amount >= minSimplePay,
+      )
+    : true
+  const remainingAmount = Math.max(0, cardEvent.targetAmount - eventTotalSpend)
+  const needsSimplePay = Boolean(cardEvent.requireSimplePay && !hasSimplePayMet)
+  return {
+    pending: remainingAmount > 0 || needsSimplePay,
+    remainingAmount,
+    needsSimplePay,
+    minSimplePayAmount: minSimplePay,
+  }
+}
+
+interface InternalRecommendation extends Recommendation {
+  _eventPending: boolean
+  _eventRemaining: number
+  _needsBasePerf: boolean
+  _needsNextTier: boolean
 }
 
 /**
- * 결제 1건을 각 카드에 가상으로 넣어보고 혜택 증가분을 비교한다.
- * 한도/실적 조건이 모두 반영된 실제 계산 방식.
+ * 결제 1건을 각 카드에 가상으로 넣어보고 혜택 증가분과 전략적 우선순위를 비교한다.
+ * 가맹점 조건, 결제방식(일반/간편결제), 건당/월 한도, 실적·이벤트 조건을 모두 반영한다.
  */
 export function recommendCards(
   cards: Card[],
@@ -253,64 +439,221 @@ export function recommendCards(
 ): Recommendation[] {
   const amount = Math.max(0, Math.round(input.amount))
   const simulationDate = `${month}-01`
-  const results: Recommendation[] = []
+  const trimmedMerchant = input.merchant?.trim() || ''
+  const paymentMode: RecommendPaymentMode =
+    input.paymentMode ?? (input.paymentMethod === '간편결제' ? 'simplepay' : 'auto')
+  const results: InternalRecommendation[] = []
 
   for (const card of cards) {
     if (!card.active) continue
     const before = computeCardMonth(card, transactions, month)
     const defaultMethod = card.kind === 'check' ? '체크카드' : '신용카드'
-    const simulated: Transaction = {
-      id: '__simulation__',
-      date: simulationDate,
-      merchant: input.merchant?.trim() || '결제 예정',
-      amount,
-      categoryId: input.categoryId,
-      cardId: card.id,
-      paymentMethod: input.paymentMethod || defaultMethod,
-    }
-    // 같은 카드에 결제 1건을 더했을 때의 혜택 증가분만 본다.
-    const simulatedAfter = computeCardMonth(card, [...transactions, simulated], month)
-    const gain = Math.max(0, simulatedAfter.totalBenefit - before.totalBenefit)
-    const after = simulatedAfter
+    const eventState = cardEventProgress(card, transactions, month)
 
-    const targetRule = ruleForTransaction(card.benefits, simulated)
-    const applicable = targetRule
-      ? before.rows.find((row) => row.rule.id === targetRule.id)
-      : null
-    const configured = targetRule
-    const matchedRule = applicable?.rule ?? configured
+    const candidateMethods =
+      paymentMode === 'simplepay'
+        ? ['간편결제']
+        : paymentMode === 'card'
+          ? [
+              input.paymentMethod && input.paymentMethod !== '간편결제'
+                ? input.paymentMethod
+                : defaultMethod,
+            ]
+          : [defaultMethod, '간편결제']
+
+    const candidates = candidateMethods.map((method) => {
+      const simulated: Transaction = {
+        id: '__simulation__',
+        date: simulationDate,
+        merchant: trimmedMerchant,
+        amount,
+        categoryId: input.categoryId,
+        cardId: card.id,
+        paymentMethod: method,
+      }
+      const after = computeCardMonth(card, [...transactions, simulated], month)
+      const gain = Math.max(0, after.totalBenefit - before.totalBenefit)
+      const targetRule = ruleForTransaction(card.benefits, simulated)
+      const applicable = targetRule
+        ? before.rows.find((row) => row.rule.id === targetRule.id) ?? null
+        : null
+      const afterRow = targetRule
+        ? after.rows.find((row) => row.rule.id === targetRule.id) ?? null
+        : null
+      return {
+        method,
+        simulated,
+        after,
+        gain,
+        targetRule,
+        applicable,
+        afterRow,
+      }
+    })
+
+    const bestCandidate = candidates.reduce((best, curr) => {
+      if (curr.gain !== best.gain) return curr.gain > best.gain ? curr : best
+      const currPrefersSimplePay =
+        curr.method === '간편결제' &&
+        ((eventState.needsSimplePay && amount >= eventState.minSimplePayAmount) ||
+          Boolean(curr.targetRule?.paymentMethods?.includes('간편결제')))
+      const bestPrefersSimplePay =
+        best.method === '간편결제' &&
+        ((eventState.needsSimplePay && amount >= eventState.minSimplePayAmount) ||
+          Boolean(best.targetRule?.paymentMethods?.includes('간편결제')))
+      if (currPrefersSimplePay !== bestPrefersSimplePay) {
+        return currPrefersSimplePay ? curr : best
+      }
+      return best.method === defaultMethod ? best : curr
+    })
+
+    const {
+      method: recommendedPaymentMethod,
+      simulated,
+      after,
+      gain,
+      targetRule,
+      applicable,
+      afterRow,
+    } = bestCandidate
+    const matchedRule = applicable?.rule ?? targetRule
 
     const ruleLabel = matchedRule
       ? matchedRule.paymentMethods?.includes(simulated.paymentMethod ?? '') &&
         matchedRule.categoryId !== input.categoryId
-        ? simulated.paymentMethod
+        ? simulated.paymentMethod ?? '간편결제'
         : categoryOf(matchedRule.categoryId).label
       : categoryOf(input.categoryId).label
 
     let reason = ''
+    let detailNote: string | undefined
+    let strategyBadge: Recommendation['strategyBadge']
+    let partiallyCapped = false
+
+    const needsBasePerf =
+      !before.inGracePeriod && card.minSpendForBenefits > 0 && before.toRequirement > 0
+    const needsNextTier = !needsBasePerf && before.nextTierRemaining > 0
+
     if (!before.performanceMet) {
       reason = `전월 실적 ${wonShort(before.card.minSpendForBenefits)} 미달`
     } else if (applicable) {
-      if (
-        applicable.rule.minTransactionAmount &&
-        amount < applicable.rule.minTransactionAmount
-      ) {
-        reason = `건당 ${won(applicable.rule.minTransactionAmount)} 이상 결제 시 적용`
+      const rule = applicable.rule
+      if (rule.minTransactionAmount && amount < rule.minTransactionAmount) {
+        reason = `건당 ${won(rule.minTransactionAmount)} 이상 결제 시 적용`
+      } else if (rule.maxCountPerMonth && applicable.count >= rule.maxCountPerMonth) {
+        reason = `${ruleLabel} 월 ${rule.maxCountPerMonth}회 한도 소진`
       } else if (gain > 0) {
-        reason = `${ruleLabel} ${ratePercent(applicable.rule.rate)} · +${won(gain)}`
+        const rawTxBenefit = singleTransactionRawBenefit(rule, amount)
+        partiallyCapped = rawTxBenefit > gain
+        const rateOrFixed =
+          rule.fixedBenefit && rule.fixedBenefit > 0
+            ? `${won(rule.fixedBenefit)} 정액`
+            : ratePercent(rule.rate)
+        const perTxNote =
+          rule.maxBenefitPerTx && rule.maxBenefitPerTx > 0 && !(rule.fixedBenefit && rule.fixedBenefit > 0)
+            ? ` (건당 최대 ${wonShort(rule.maxBenefitPerTx)})`
+            : ''
+        reason = `${ruleLabel} ${rateOrFixed}${perTxNote} · +${won(gain)}`
+
+        const remainingCapAfter = Math.min(afterRow?.capLeft ?? 0, after.capLeft)
+        const parts: string[] = []
+        if (partiallyCapped) {
+          parts.push(`남은 한도 ${won(gain)}까지만 적용 (한도 소진)`)
+        } else {
+          parts.push(`이번 달 남은 한도 ${won(remainingCapAfter)}`)
+        }
+        if (rule.merchants && rule.merchants.length > 0) {
+          parts.push(`${rule.merchants.slice(0, 3).join('·')} 전용`)
+        }
+        detailNote = parts.join(' · ')
       } else if (before.capLeft <= 0) {
         reason = '이번 달 통합 한도 소진'
       } else {
         reason = `${ruleLabel} 한도 소진`
       }
-    } else if (configured?.minSpend) {
-      reason = `전월 ${wonShort(configured.minSpend)} 실적 필요`
+    } else if (
+      targetRule?.minSpend &&
+      (before.inGracePeriod
+        ? Math.max(before.prevSpend, card.minSpendForBenefits)
+        : before.prevSpend) < targetRule.minSpend
+    ) {
+      reason = `전월 ${wonShort(targetRule.minSpend)} 실적 필요`
     } else if (gain > 0) {
+      const rawBase = Math.round(amount * before.card.baseRate)
+      partiallyCapped = rawBase > gain
       reason = `기본 적립 ${ratePercent(before.card.baseRate)} · +${won(gain)}`
+      const baseCapLeftAfter = Math.max(0, before.card.baseCap - after.baseApplied)
+      const remainingAfter = Math.min(baseCapLeftAfter, after.capLeft)
+      detailNote = partiallyCapped
+        ? `남은 한도 ${won(gain)}까지만 적용 (한도 소진)`
+        : `이번 달 남은 한도 ${won(remainingAfter)}`
     } else if (before.capLeft <= 0) {
       reason = '이번 달 혜택 한도 소진'
     } else {
-      reason = '이 카드엔 혜택 조건이 없어요'
+      // card 모드 강제 시 간편결제 혜택 가능 여부 안내
+      let simplePayHintRule: BenefitRule | null = null
+      let simplePayHintGain = 0
+      if (paymentMode === 'card') {
+        const spSim: Transaction = {
+          ...simulated,
+          paymentMethod: '간편결제',
+        }
+        const spAfter = computeCardMonth(card, [...transactions, spSim], month)
+        simplePayHintGain = Math.max(0, spAfter.totalBenefit - before.totalBenefit)
+        if (simplePayHintGain > 0) {
+          simplePayHintRule = ruleForTransaction(card.benefits, spSim)
+        }
+      }
+
+      if (simplePayHintRule) {
+        const hintAmount =
+          simplePayHintRule.fixedBenefit && simplePayHintRule.fixedBenefit > 0
+            ? won(simplePayHintRule.fixedBenefit)
+            : ratePercent(simplePayHintRule.rate)
+        reason = `간편결제 선택 시 ${hintAmount} 혜택 가능`
+      } else if (simplePayHintGain > 0) {
+        reason = `간편결제 선택 시 +${won(simplePayHintGain)} 혜택 가능`
+      } else {
+        const merchantRestricted = card.benefits.filter(
+          (r) =>
+            r.categoryId === input.categoryId &&
+            (r.merchants?.length ?? 0) > 0 &&
+            !ruleMatchesMerchant(r, trimmedMerchant),
+        )
+        if (merchantRestricted.length > 0) {
+          const names = [...new Set(merchantRestricted.flatMap((r) => r.merchants ?? []))]
+          reason = `${names.slice(0, 3).join('·')}${names.length > 3 ? ' 등' : ''} 전용 혜택만 있어요`
+        } else {
+          reason = '이 업종 직접 할인 없음'
+        }
+      }
+    }
+
+    if (gain > 0) {
+      const isSimplePayWinner =
+        recommendedPaymentMethod === '간편결제' &&
+        (Boolean(matchedRule?.paymentMethods?.includes('간편결제')) ||
+          candidates.some((c) => c.method !== '간편결제' && c.gain < gain))
+      strategyBadge = isSimplePayWinner
+        ? { label: '⚡ 간편결제 시', tone: 'accent' }
+        : { label: `💳 ${defaultMethod}`, tone: 'neutral' }
+    } else {
+      if (eventState.pending) {
+        strategyBadge = { label: '🎁 이벤트 채우기 추천', tone: 'warn' }
+        if (eventState.remainingAmount > 0) {
+          detailNote = `이벤트 달성까지 ${won(eventState.remainingAmount)} 남음${
+            eventState.needsSimplePay ? ` · 간편결제 ${wonShort(eventState.minSimplePayAmount)}↑ 필요` : ''
+          }`
+        } else if (eventState.needsSimplePay) {
+          detailNote = `간편결제 ${wonShort(eventState.minSimplePayAmount)} 이상 1건 결제 시 이벤트 완료`
+        }
+      } else if (needsBasePerf) {
+        strategyBadge = { label: '🎯 실적 채우기 추천', tone: 'neutral' }
+        detailNote = `이번 달 ${won(before.toRequirement)} 더 쓰면 다음 달 혜택 충족`
+      } else if (needsNextTier) {
+        strategyBadge = { label: '📈 한도 상향 구간 임박', tone: 'neutral' }
+        detailNote = `다음 한도 구간까지 ${won(before.nextTierRemaining)} 남음`
+      }
     }
 
     results.push({
@@ -320,17 +663,112 @@ export function recommendCards(
       gain,
       eligible: before.performanceMet,
       matchedRule,
+      recommendedPaymentMethod,
       reason,
+      detailNote,
+      strategyBadge,
+      partiallyCapped,
+      _eventPending: eventState.pending,
+      _eventRemaining: eventState.remainingAmount,
+      _needsBasePerf: needsBasePerf,
+      _needsNextTier: needsNextTier,
     })
   }
 
-  return results.sort((a, b) => {
-    if (b.gain !== a.gain) return b.gain - a.gain
-    if (b.before.performanceMet !== a.before.performanceMet) {
-      return Number(b.before.performanceMet) - Number(a.before.performanceMet)
+  return results
+    .sort((a, b) => {
+      if (b.gain !== a.gain) return b.gain - a.gain
+
+      if (a._eventPending !== b._eventPending) {
+        return a._eventPending ? -1 : 1
+      }
+      if (a._eventPending && b._eventPending && a._eventRemaining !== b._eventRemaining) {
+        return a._eventRemaining - b._eventRemaining
+      }
+
+      if (a._needsBasePerf !== b._needsBasePerf) {
+        return a._needsBasePerf ? -1 : 1
+      }
+      if (a._needsBasePerf && b._needsBasePerf && a.before.toRequirement !== b.before.toRequirement) {
+        return a.before.toRequirement - b.before.toRequirement
+      }
+
+      if (a._needsNextTier !== b._needsNextTier) {
+        return a._needsNextTier ? -1 : 1
+      }
+      if (
+        a._needsNextTier &&
+        b._needsNextTier &&
+        a.before.nextTierRemaining !== b.before.nextTierRemaining
+      ) {
+        return a.before.nextTierRemaining - b.before.nextTierRemaining
+      }
+
+      if (b.before.performanceMet !== a.before.performanceMet) {
+        return Number(b.before.performanceMet) - Number(a.before.performanceMet)
+      }
+      return b.after.effectiveRate - a.after.effectiveRate
+    })
+    .map(({ _eventPending, _eventRemaining, _needsBasePerf, _needsNextTier, ...rest }) => rest)
+}
+
+export function merchantChipsForCategory(
+  cards: Card[],
+  categoryId: CategoryId,
+): string[] {
+  const seen = new Set<string>()
+  const chips: string[] = []
+  for (const card of cards) {
+    if (!card.active) continue
+    for (const rule of card.benefits) {
+      if (rule.categoryId !== categoryId || !rule.merchants) continue
+      for (const merchant of rule.merchants) {
+        const key = normalizeText(merchant)
+        if (!key || seen.has(key)) continue
+        seen.add(key)
+        chips.push(merchant)
+      }
     }
-    return b.after.effectiveRate - a.after.effectiveRate
-  })
+  }
+  return chips
+}
+
+export function merchantOpportunitiesForCategory(
+  cards: Card[],
+  transactions: Transaction[],
+  month: string,
+  input: {
+    categoryId: CategoryId
+    amount: number
+    paymentMode: RecommendPaymentMode
+  },
+  bestGeneralGain: number,
+): MerchantOpportunity[] {
+  if (input.amount <= 0) return []
+  const chips = merchantChipsForCategory(cards, input.categoryId)
+  const opportunities: MerchantOpportunity[] = []
+
+  for (const merchant of chips) {
+    const recs = recommendCards(cards, transactions, month, {
+      categoryId: input.categoryId,
+      amount: input.amount,
+      merchant,
+      paymentMode: input.paymentMode,
+    })
+    const top = recs[0]
+    if (top && top.gain > bestGeneralGain && top.gain > 0) {
+      opportunities.push({
+        merchant,
+        cardId: top.card.id,
+        cardName: top.card.name,
+        gain: top.gain,
+        rate: top.matchedRule?.rate ?? 0,
+        fixedBenefit: top.matchedRule?.fixedBenefit,
+      })
+    }
+  }
+
+  return opportunities.sort((a, b) => b.gain - a.gain)
 }
 
 export function totalBenefit(cards: Card[], transactions: Transaction[], month: string): number {

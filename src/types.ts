@@ -42,9 +42,25 @@ export interface BenefitRule {
   minSpend?: number
   /** 건당 최소 결제 금액(원). 이 금액 미만 결제는 혜택 계산에서 제외 */
   minTransactionAmount?: number
+  /** 건당 최대 할인/적립 한도(원). 없으면 월 한도만 적용 */
+  maxBenefitPerTx?: number
+  /** 정률(rate) 대신 건당 고정 할인/적립 금액(원) */
+  fixedBenefit?: number
+  /** 월 최대 혜택 적용 횟수 */
+  maxCountPerMonth?: number
+  /** 특정 가맹점 전용 혜택일 때 대상 가맹점 키워드 목록 (예: ['아웃백', 'VIPS']). 비어 있거나 없으면 카테고리 전체 적용 */
+  merchants?: string[]
   /** 카테고리와 별개로 혜택 대상에 포함할 결제수단 (예: 간편결제) */
   paymentMethods?: string[]
   note?: string
+}
+
+export interface TransactionDraft {
+  categoryId?: CategoryId
+  amount?: number
+  merchant?: string
+  cardId?: string | null
+  paymentMethod?: string
 }
 
 export type CardKind = 'credit' | 'check'

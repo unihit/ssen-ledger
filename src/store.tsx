@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import { Icon } from './components/Icon'
-import { DEFAULT_SETTINGS, findPredefinedCard } from './data/cards'
+import { DEFAULT_SETTINGS, mergePredefinedCardRules } from './data/cards'
 import {
   DEFAULT_FIXED_EXPENSES,
   DEFAULT_PREV_MONTH_TRANSACTIONS,
@@ -114,15 +114,7 @@ function normalize(state: AppState): AppState {
     ? [
         ...state.cards
           .filter((card) => !RETIRED_CARD_IDS.has(card.id))
-          .map((card) => {
-            const predefined = findPredefinedCard(card.id)
-            return {
-              ...card,
-              gracePeriodMonths:
-                card.gracePeriodMonths ?? predefined?.gracePeriodMonths,
-              event: card.event ?? predefined?.event,
-            }
-          }),
+          .map((card) => mergePredefinedCardRules(card)),
         ...defaultCards.filter(
           (def) => !state.cards.some((existing) => existing.id === def.id),
         ),
