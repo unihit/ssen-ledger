@@ -719,7 +719,9 @@ export function SettingsPage() {
           <section className="panel about about-settings">
             <div className="about__mark">쎈</div>
             <div>
-              <h2>쎈 가계부</h2>
+              <h2>
+                쎈 가계부 <span className="about__version">v{__APP_VERSION__}</span>
+              </h2>
               <p>
                 카드 실적과 혜택을 자동 계산하고, 결제 전 가장 쎈 카드를 알려주는 가계부예요.
                 {cloudEnabled
