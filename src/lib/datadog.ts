@@ -204,7 +204,8 @@ export function initDatadog() {
   const site = import.meta.env.VITE_DATADOG_SITE || 'datadoghq.com'
   const service = import.meta.env.VITE_DATADOG_SERVICE || 'ssen-ledger'
   const env = import.meta.env.VITE_DATADOG_ENV || import.meta.env.MODE || 'development'
-  const version = import.meta.env.VITE_DATADOG_VERSION || '1.0.0'
+  const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'
+  const version = import.meta.env.VITE_DATADOG_VERSION || appVersion
   const replaySampleRate = Number(
     import.meta.env.VITE_DATADOG_REPLAY_SAMPLE_RATE ?? '0',
   )
