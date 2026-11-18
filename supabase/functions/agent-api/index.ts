@@ -2216,10 +2216,19 @@ async function updateFixedExpense(
 ) {
   const existing = await fetchFixedExpense(householdId, id)
   const body = normalizeAliases(await readBody(req))
-  const input = validateFixedExpenseInput({
+  const merged: Record<string, unknown> = {
     ...fixedExpenseToRaw(existing),
     ...body,
-  })
+  }
+  const categoryChanged =
+    (body.categoryMajor !== undefined &&
+      body.categoryMajor !== existing.category_major) ||
+    (body.categoryMinor !== undefined &&
+      body.categoryMinor !== existing.category_minor)
+  if (categoryChanged && body.categoryId === undefined) {
+    merged.categoryId = null
+  }
+  const input = validateFixedExpenseInput(merged)
   const payload = await buildFixedExpensePayload(householdId, input)
 
   const { data, error } = await db()
