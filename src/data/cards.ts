@@ -381,7 +381,7 @@ export const IBK_KPASS_CARD: Card = {
     {
       id: 'ibk-kpass-transport',
       categoryId: 'transport',
-      rate: 0.07,
+      rate: 0.08,
       monthlyCap: 10_000,
       note: '버스·지하철 회당 100~300원 할인 (일 3회, 월 최대 10,000원) · 정부 K-패스 환급 별도',
     },
@@ -390,9 +390,10 @@ export const IBK_KPASS_CARD: Card = {
       categoryId: 'transport',
       rate: 0.05,
       monthlyCap: 5_000,
+      maxBenefitPerTx: 2_500,
       maxCountPerMonth: 2,
-      merchants: ['코레일', 'KTX', '고속버스', '택시'],
-      note: '코레일·KTX·고속버스·택시 5% 할인 (일 1회, 월 2회, 월 최대 5,000원 · 택시 앱 자동결제 제외, 현장결제만 가능)',
+      merchants: ['코레일', 'KTX', '고속버스', '택시', '카카오T', '우버', '타다'],
+      note: '코레일·KTX·고속버스·택시 5% 할인 (월 2회, 회당 최대 2,500원 · 택시 앱 자동결제 제외, 실물 신용카드 현장결제만 가능)',
     },
     {
       id: 'ibk-kpass-fuel',
@@ -694,21 +695,27 @@ export function mergePredefinedCardRules(card: Card): Card {
       if (!base) return rule
       const migrateIbkTravel =
         rule.id === 'ibk-kpass-travel' && rule.categoryId === 'travel'
+      const mergedMerchants =
+        rule.merchants !== undefined
+          ? rule.id === 'ibk-kpass-travel' &&
+            rule.merchants.length > 0 &&
+            !rule.merchants.includes('카카오T') &&
+            base.merchants
+            ? [...new Set([...rule.merchants, ...base.merchants])]
+            : [...rule.merchants]
+          : base.merchants
+            ? [...base.merchants]
+            : undefined
       return {
         ...rule,
         categoryId: migrateIbkTravel ? 'transport' : rule.categoryId,
-        note: migrateIbkTravel ? base.note : rule.note,
+        note:
+          migrateIbkTravel || rule.id === 'ibk-kpass-travel'
+            ? base.note
+            : rule.note,
         minTransactionAmount: rule.minTransactionAmount ?? base.minTransactionAmount,
-        merchants:
-          rule.merchants !== undefined
-            ? [...rule.merchants]
-            : base.merchants
-              ? [...base.merchants]
-              : undefined,
-        maxBenefitPerTx:
-          migrateIbkTravel && rule.maxBenefitPerTx === 2_500
-            ? undefined
-            : (rule.maxBenefitPerTx ?? base.maxBenefitPerTx),
+        merchants: mergedMerchants,
+        maxBenefitPerTx: rule.maxBenefitPerTx ?? base.maxBenefitPerTx,
         fixedBenefit: rule.fixedBenefit ?? base.fixedBenefit,
         maxCountPerMonth: rule.maxCountPerMonth ?? base.maxCountPerMonth,
         paymentMethods:
