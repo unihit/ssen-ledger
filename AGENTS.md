@@ -31,6 +31,7 @@
 - **원격 반영(`push`) 및 병합(`merge`)**:
   - 사용자의 명시적 요청 없이 `main`에 직접 push/merge 하거나 force push(`--force`)를 실행하지 않습니다.
   - 작업 완료 후 변경된 파일 목록, 핵심 변경 내용, 검증 결과를 요약해 사용자가 리뷰 후 커밋/PR을 진행할 수 있도록 안내합니다.
+  - `main` 머지 및 원격 `push`까지 완료된 경우, 작업하던 피처 브랜치는 삭제(`git branch -d <브랜치명>`)하고 해당 worktree를 기본 워크스페이스 브랜치(`worktrees/<도구>` → `<도구>/workspace`)로 전환해 최신 `origin/main`에 맞춰 둡니다.
 - **새 Worktree / 환경 파일 주의**:
   - `.env.local`, `.env.agent` 등 Git에 포함되지 않은 환경 파일과 `node_modules`는 worktree 간 공유되지 않으므로, 초기 세팅 또는 패키지 변경 시 해당 worktree에서 확인/`npm install`을 수행합니다.
 
