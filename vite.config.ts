@@ -1,7 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import pkg from './package.json' with { type: 'json' }
 
 export default defineConfig(({ command }) => ({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   // GitHub Pages: https://unihit.github.io/ssen-ledger/
   // 개발 서버는 루트(/)에서 그대로 실행합니다.
   base: command === 'build' ? '/ssen-ledger/' : '/',

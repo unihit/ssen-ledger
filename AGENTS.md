@@ -58,3 +58,14 @@ npm run build
 - **브라우저 확인 및 테스트**:
   - UI 확인이나 브라우저 테스트가 필요할 때는 내장 브라우저나 Playwright 대신 **Ego Lite 브라우저(`ego-browser`)**를 사용합니다.
   - Windows PowerShell에서는 `.mjs` 스크립트 파일(`C:/Users/<Username>/ego/<task>/round-01.mjs`)로 작성한 뒤 `cmd /c "ego-browser nodejs < <경로>"`로 실행하고, 작업 종료 시 `await task.finish({ keep: [] })`로 리소스를 정리합니다.
+
+---
+
+## 4. 앱 버전 관리 규칙
+
+`package.json`의 `version`(`MAJOR.MINOR.PATCH`)은 설정 화면의 앱 버전 표시에 자동으로 반영됩니다. 코드 변경 후 `main`에 머지하기 전 아래 기준에 따라 버전을 올립니다.
+
+- **`PATCH` (`x.y.Z`)**: 버그 수정(`fix/`), 보안 수정(`security/`), UI/문구 미세 조정 등 기존 기능 보완
+- **`MINOR` (`x.Y.0`)**: 새 기능 추가(`feat/`), 주요 화면·로직 개선
+- **`MAJOR` (`X.0.0`)**: DB/데이터 구조 변경 또는 전면 개편 (사용자의 명시적 요청이 있을 때만 변경)
+- **예외**: `AGENTS.md`, `README` 등 문서나 개발 규칙만 수정할 때는 버전을 올리지 않습니다.
