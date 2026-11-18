@@ -185,6 +185,20 @@ export function initDatadog() {
     return
   }
 
+  const isLocalHost =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname === '[::1]')
+
+  if (
+    (import.meta.env.DEV || isLocalHost) &&
+    import.meta.env.VITE_DATADOG_ALLOW_LOCAL !== 'true'
+  ) {
+    console.info('[Datadog] 로컬 개발 환경에서는 Datadog 전송을 비활성화했습니다.')
+    return
+  }
+
   const applicationId = import.meta.env.VITE_DATADOG_APPLICATION_ID
   const clientToken = import.meta.env.VITE_DATADOG_CLIENT_TOKEN
   const site = import.meta.env.VITE_DATADOG_SITE || 'datadoghq.com'
