@@ -1,4 +1,4 @@
-import type { Card, Settings } from '../types'
+import type { BenefitRule, Card, Settings } from '../types'
 
 /**
  * MG+ S 하나카드 실제 약관 기반 예시.
@@ -84,6 +84,9 @@ export const SHINHAN_NARA_CARD: Card = {
       categoryId: 'mart',
       rate: 0.2,
       monthlyCap: 5_000,
+      maxBenefitPerTx: 1_000,
+      maxCountPerMonth: 5,
+      merchants: ['GS25', 'CU'],
       note: 'GS25·CU 20% 캐시백 (일 1회, 월 5회, 건당 최대 1,000원) · CU 행사상품 10% 현장할인',
     },
     {
@@ -91,6 +94,9 @@ export const SHINHAN_NARA_CARD: Card = {
       categoryId: 'cafe',
       rate: 0.05,
       monthlyCap: 6_000,
+      maxBenefitPerTx: 2_000,
+      maxCountPerMonth: 3,
+      merchants: ['스타벅스', '이디야', '메가MGC', '컴포즈', '빽다방'],
       note: '스타벅스·이디야·메가MGC·컴포즈·빽다방 5% 캐시백 (일 1회, 월 3회, 건당 최대 2,000원)',
     },
     {
@@ -98,6 +104,9 @@ export const SHINHAN_NARA_CARD: Card = {
       categoryId: 'delivery',
       rate: 0.05,
       monthlyCap: 5_000,
+      maxBenefitPerTx: 1_000,
+      maxCountPerMonth: 5,
+      merchants: ['배달의민족'],
       note: '배달의민족 앱 결제 5% 캐시백 (일 1회, 월 5회, 건당 최대 1,000원)',
     },
     {
@@ -105,6 +114,8 @@ export const SHINHAN_NARA_CARD: Card = {
       categoryId: 'telecom',
       rate: 0.05,
       monthlyCap: 5_000,
+      maxBenefitPerTx: 5_000,
+      maxCountPerMonth: 1,
       note: '통신요금 자동이체 5% 캐시백 (SKT·KT·LGU+ 및 알뜰폰허브, 월 1회, 건당 최대 5,000원)',
     },
     {
@@ -119,6 +130,7 @@ export const SHINHAN_NARA_CARD: Card = {
       categoryId: 'shopping',
       rate: 0.1,
       monthlyCap: 6_000,
+      merchants: ['무신사', '29CM'],
       note: '무신사·29CM 공식 앱/웹 결제 10% 캐시백 (월 6,000원 한도)',
     },
     {
@@ -126,6 +138,7 @@ export const SHINHAN_NARA_CARD: Card = {
       categoryId: 'culture',
       rate: 0.2,
       monthlyCap: 6_000,
+      merchants: ['CGV', '알라딘', 'YES24', '에버랜드', '롯데월드'],
       note: 'CGV 2D 티켓 6,000원 구매 (월 1회 2매) · 알라딘/YES24 5% · 에버랜드/롯데월드 50% (30만원 이상, 연 3회)',
     },
     {
@@ -133,6 +146,7 @@ export const SHINHAN_NARA_CARD: Card = {
       categoryId: 'living',
       rate: 0.2,
       monthlyCap: 100_000,
+      merchants: ['군 PX', '해군마트'],
       note: '군 PX 및 GS25 해군마트 20% 캐시백 (3만원 미만 일 1,000원, 3만원 이상 20%, 매월 10일 50%, 전월실적 무관)',
     },
   ],
@@ -172,6 +186,7 @@ export const KB_BONUS_CARD: Card = {
       rate: 0.035,
       monthlyCap: 10_000,
       minSpend: 200_000,
+      merchants: ['GS칼텍스'],
       note: 'GS칼텍스 주중 50원/L, 주말 60원/L 환급할인 (건당 10만원, 월 30만원 이용금액 한도)',
     },
     {
@@ -189,6 +204,8 @@ export const KB_BONUS_CARD: Card = {
       monthlyCap: 10_000,
       minSpend: 200_000,
       minTransactionAmount: 30_000,
+      maxBenefitPerTx: 10_000,
+      merchants: ['아웃백'],
       note: '아웃백 10% 환급할인 (건당 3만~10만원 결제 시, 건당 최대 10,000원)',
     },
     {
@@ -198,6 +215,8 @@ export const KB_BONUS_CARD: Card = {
       monthlyCap: 10_000,
       minSpend: 500_000,
       minTransactionAmount: 50_000,
+      maxBenefitPerTx: 5_000,
+      merchants: ['롯데백화점', '현대백화점', '신세계백화점'],
       note: '롯데·현대·신세계백화점 5% 환급할인 (건당 5만~10만원 결제 시, 건당 최대 5,000원)',
     },
     {
@@ -207,6 +226,8 @@ export const KB_BONUS_CARD: Card = {
       monthlyCap: 1_000,
       minSpend: 300_000,
       minTransactionAmount: 50_000,
+      fixedBenefit: 1_000,
+      maxCountPerMonth: 1,
       note: '이동통신요금 자동이체 건당 5만원 이상 시 1,000원 환급 (월 1회)',
     },
     {
@@ -216,6 +237,8 @@ export const KB_BONUS_CARD: Card = {
       monthlyCap: 9_000,
       minSpend: 300_000,
       minTransactionAmount: 100_000,
+      fixedBenefit: 2_000,
+      maxBenefitPerTx: 7_000,
       note: '국세·지방세 7,000원 환급(건당 10만원 이상, 월 1회) · 보험료 2,000원 환급(건당 10만원 이상, 월 1회)',
     },
     {
@@ -225,6 +248,8 @@ export const KB_BONUS_CARD: Card = {
       monthlyCap: 25_000,
       minSpend: 200_000,
       minTransactionAmount: 30_000,
+      maxBenefitPerTx: 25_000,
+      merchants: ['에버랜드'],
       note: '에버랜드 현장 티켓 발매 50% 환급할인 (건당 3만~5만원 결제 시, 건당 최대 25,000원)',
     },
   ],
@@ -261,6 +286,7 @@ export const LOTTE_LOCA_365_CARD: Card = {
       monthlyCap: 10_000,
       minSpend: 500_000,
       minTransactionAmount: 20_000,
+      merchants: ['아파트관리비', '도시가스', '전기료'],
       note: '아파트관리비·도시가스·전기료 10% 결제일 할인 (건당 2만원 이상, 관리비 5천원 + 공과금 5천원)',
     },
     {
@@ -306,6 +332,7 @@ export const LOTTE_LOCA_365_CARD: Card = {
       monthlyCap: 5_000,
       minSpend: 500_000,
       minTransactionAmount: 20_000,
+      merchants: ['교원', '대교', '웅진씽크빅', '구몬'],
       note: '학습지(교원·대교·웅진씽크빅·구몬 등) 10% 결제일 할인 (건당 2만원 이상, 월 최대 5,000원)',
     },
     {
@@ -314,6 +341,8 @@ export const LOTTE_LOCA_365_CARD: Card = {
       rate: 0.15,
       monthlyCap: 1_500,
       minSpend: 500_000,
+      fixedBenefit: 1_500,
+      maxCountPerMonth: 1,
       note: '디지털구독(넷플릭스·유튜브프리미엄·왓챠·멜론·지니·디즈니+) 월 1회 1,500원 결제일 할인',
     },
   ],
@@ -333,7 +362,7 @@ export const IBK_KPASS_CARD: Card = {
   colorFrom: '#004b9b',
   colorTo: '#0072ce',
   minSpendForBenefits: 200_000,
-  monthlyTotalCap: 28_200,
+  monthlyTotalCap: 38_200,
   gracePeriodMonths: ['2026-11', '2026-12'],
   event: {
     title: '신규 발급 캐시백 이벤트',
@@ -344,10 +373,7 @@ export const IBK_KPASS_CARD: Card = {
     reward: '캐시백 지급',
     note: '간편결제 1만원 이상 1건 필수 포함',
   },
-  performanceTiers: [
-    { minSpend: 200_000, monthlyTotalCap: 28_200 },
-    { minSpend: 500_000, monthlyTotalCap: 28_200 },
-  ],
+  performanceTiers: [],
   baseRate: 0,
   baseCap: 0,
   active: true,
@@ -361,16 +387,21 @@ export const IBK_KPASS_CARD: Card = {
     },
     {
       id: 'ibk-kpass-travel',
-      categoryId: 'travel',
+      categoryId: 'transport',
       rate: 0.05,
       monthlyCap: 5_000,
-      note: '코레일·고속버스·택시 5% 할인 (월 2회, 회당 최대 2,500원 · 택시 앱 자동결제 제외, 현장결제만 가능)',
+      maxCountPerMonth: 2,
+      merchants: ['코레일', 'KTX', '고속버스', '택시'],
+      note: '코레일·KTX·고속버스·택시 5% 할인 (일 1회, 월 2회, 월 최대 5,000원 · 택시 앱 자동결제 제외, 현장결제만 가능)',
     },
     {
       id: 'ibk-kpass-fuel',
       categoryId: 'fuel',
       rate: 0.025,
       monthlyCap: 10_000,
+      maxBenefitPerTx: 2_500,
+      maxCountPerMonth: 4,
+      merchants: ['GS칼텍스'],
       note: 'GS칼텍스 리터당 40원 할인 (일 1회, 월 4회, 회당 10만원 한도)',
     },
     {
@@ -378,6 +409,8 @@ export const IBK_KPASS_CARD: Card = {
       categoryId: 'telecom',
       rate: 0.03,
       monthlyCap: 1_200,
+      maxBenefitPerTx: 1_200,
+      maxCountPerMonth: 1,
       note: 'SKT·KT·LGU+ 이동통신 자동이체 3% 할인 (월 1회, 최대 1,200원)',
     },
     {
@@ -385,6 +418,9 @@ export const IBK_KPASS_CARD: Card = {
       categoryId: 'food',
       rate: 0.1,
       monthlyCap: 10_000,
+      maxBenefitPerTx: 10_000,
+      maxCountPerMonth: 1,
+      merchants: ['아웃백', 'VIPS'],
       note: '아웃백·빕스 10% 현장할인 (월 1회, 이용금액 10만원 한도)',
     },
     {
@@ -392,6 +428,10 @@ export const IBK_KPASS_CARD: Card = {
       categoryId: 'culture',
       rate: 0.15,
       monthlyCap: 2_000,
+      minTransactionAmount: 10_000,
+      fixedBenefit: 2_000,
+      maxCountPerMonth: 1,
+      merchants: ['CGV', '메가박스'],
       note: 'CGV·메가박스 예매 2,000원 할인 (월 1회, 연 6회)',
     },
   ],
@@ -442,6 +482,7 @@ const MY_CARDS: Card[] = [
         categoryId: 'cafe',
         rate: 0.2,
         monthlyCap: 20_000,
+        merchants: ['스타벅스'],
         note: '스타벅스 20% 환급할인',
       },
       {
@@ -449,6 +490,7 @@ const MY_CARDS: Card[] = [
         categoryId: 'culture',
         rate: 0.35,
         monthlyCap: 20_000,
+        merchants: ['CGV', '에버랜드', '롯데월드'],
         note: 'CGV 35% · 놀이공원 50% (통합한도)',
       },
       {
@@ -456,6 +498,7 @@ const MY_CARDS: Card[] = [
         categoryId: 'shopping',
         rate: 0.05,
         monthlyCap: 20_000,
+        merchants: ['GS홈쇼핑', 'CJ홈쇼핑', 'G마켓', '옥션'],
         note: 'GS홈쇼핑·CJ홈쇼핑·G마켓·옥션 5%',
       },
       {
@@ -463,6 +506,7 @@ const MY_CARDS: Card[] = [
         categoryId: 'food',
         rate: 0.2,
         monthlyCap: 20_000,
+        merchants: ['아웃백', 'VIPS'],
         note: '아웃백·VIPS 20%',
       },
       {
@@ -471,6 +515,8 @@ const MY_CARDS: Card[] = [
         rate: 0.05,
         monthlyCap: 2_500,
         minTransactionAmount: 50_000,
+        fixedBenefit: 2_500,
+        maxCountPerMonth: 1,
         note: '통신요금 자동납부 건당 5만원 이상 2,500원',
       },
     ],
@@ -493,6 +539,7 @@ const MY_CARDS: Card[] = [
         categoryId: 'simplepay',
         rate: 0.055,
         monthlyCap: 11_000,
+        paymentMethods: ['간편결제'],
         note: '5.5% · 월 20만원 결제까지(최대 11,000원) · 연 KB Pay 300만원 이상 12,000점 별도',
       },
     ],
@@ -516,6 +563,8 @@ const MY_CARDS: Card[] = [
         rate: 0.1,
         monthlyCap: 2_900,
         minSpend: 100_000,
+        maxBenefitPerTx: 2_900,
+        merchants: ['쿠팡', '쿠팡 로켓와우'],
         note: '쿠팡 로켓와우 자동납부 최대 2,900원',
       },
       {
@@ -525,6 +574,8 @@ const MY_CARDS: Card[] = [
         monthlyCap: 2_000,
         minSpend: 200_000,
         minTransactionAmount: 10_000,
+        fixedBenefit: 2_000,
+        maxCountPerMonth: 1,
         note: 'OTT 자동납부 2,000원 · 음원 1,000원',
       },
       {
@@ -534,6 +585,10 @@ const MY_CARDS: Card[] = [
         monthlyCap: 10_000,
         minSpend: 300_000,
         minTransactionAmount: 10_000,
+        fixedBenefit: 1_000,
+        maxBenefitPerTx: 1_000,
+        maxCountPerMonth: 10,
+        paymentMethods: ['간편결제'],
         note: '간편결제·쇼핑·배달 1,000원 × 월 10회',
       },
     ],
@@ -562,6 +617,7 @@ const MY_CARDS: Card[] = [
         rate: 0.36,
         monthlyCap: 20_000,
         minSpend: 300_000,
+        merchants: ['SKT'],
         note: 'SKT 통신요금 자동납부 10,000/15,000/20,000원 (T라이트 +1,000~3,000)',
       },
       {
@@ -571,6 +627,9 @@ const MY_CARDS: Card[] = [
         monthlyCap: 3_000,
         minSpend: 300_000,
         minTransactionAmount: 12_000,
+        fixedBenefit: 3_000,
+        maxCountPerMonth: 1,
+        merchants: ['CGV', '메가박스', '롯데시네마'],
         note: '영화 3,000원 청구할인',
       },
       {
@@ -579,6 +638,9 @@ const MY_CARDS: Card[] = [
         rate: 0.1,
         monthlyCap: 20_000,
         minSpend: 300_000,
+        maxBenefitPerTx: 10_000,
+        maxCountPerMonth: 2,
+        merchants: ['VIPS', '생어거스틴'],
         note: 'VIPS·생어거스틴 10% (월 2회, 건당 1만원 한도)',
       },
       {
@@ -587,6 +649,9 @@ const MY_CARDS: Card[] = [
         rate: 0.2,
         monthlyCap: 10_000,
         minSpend: 300_000,
+        maxBenefitPerTx: 5_000,
+        maxCountPerMonth: 2,
+        merchants: ['할리스', '엔제리너스'],
         note: '할리스·엔제리너스 20% (월 2회, 건당 5천원 한도)',
       },
     ],
@@ -597,10 +662,70 @@ export function findPredefinedCard(id: string): Card | undefined {
   return MY_CARDS.find((card) => card.id === id)
 }
 
+function cloneRule(rule: BenefitRule): BenefitRule {
+  return {
+    ...rule,
+    merchants: rule.merchants ? [...rule.merchants] : undefined,
+    paymentMethods: rule.paymentMethods ? [...rule.paymentMethods] : undefined,
+  }
+}
+
+export function mergePredefinedCardRules(card: Card): Card {
+  const predefined = findPredefinedCard(card.id)
+  if (!predefined) return card
+  const predefinedById = new Map(predefined.benefits.map((rule) => [rule.id, rule]))
+  const isLegacyIbkKpass = card.id === 'ibk-kpass-credit'
+  const hasLegacyIbkTiers =
+    isLegacyIbkKpass &&
+    (card.performanceTiers?.length ?? 0) > 0 &&
+    card.performanceTiers!.every((tier) => tier.monthlyTotalCap === 28_200)
+
+  return {
+    ...card,
+    monthlyTotalCap:
+      isLegacyIbkKpass && card.monthlyTotalCap === 28_200
+        ? predefined.monthlyTotalCap
+        : card.monthlyTotalCap,
+    performanceTiers: hasLegacyIbkTiers ? [] : card.performanceTiers,
+    gracePeriodMonths: card.gracePeriodMonths ?? predefined.gracePeriodMonths,
+    event: card.event ?? predefined.event,
+    benefits: card.benefits.map((rule) => {
+      const base = predefinedById.get(rule.id)
+      if (!base) return rule
+      const migrateIbkTravel =
+        rule.id === 'ibk-kpass-travel' && rule.categoryId === 'travel'
+      return {
+        ...rule,
+        categoryId: migrateIbkTravel ? 'transport' : rule.categoryId,
+        note: migrateIbkTravel ? base.note : rule.note,
+        minTransactionAmount: rule.minTransactionAmount ?? base.minTransactionAmount,
+        merchants:
+          rule.merchants !== undefined
+            ? [...rule.merchants]
+            : base.merchants
+              ? [...base.merchants]
+              : undefined,
+        maxBenefitPerTx:
+          migrateIbkTravel && rule.maxBenefitPerTx === 2_500
+            ? undefined
+            : (rule.maxBenefitPerTx ?? base.maxBenefitPerTx),
+        fixedBenefit: rule.fixedBenefit ?? base.fixedBenefit,
+        maxCountPerMonth: rule.maxCountPerMonth ?? base.maxCountPerMonth,
+        paymentMethods:
+          rule.paymentMethods !== undefined
+            ? [...rule.paymentMethods]
+            : base.paymentMethods
+              ? [...base.paymentMethods]
+              : undefined,
+      }
+    }),
+  }
+}
+
 export function createCards(): Card[] {
   return MY_CARDS.map((card) => ({
     ...card,
-    benefits: card.benefits.map((rule) => ({ ...rule })),
+    benefits: card.benefits.map(cloneRule),
     performanceTiers: card.performanceTiers?.map((tier) => ({ ...tier })) ?? [],
     gracePeriodMonths: card.gracePeriodMonths ? [...card.gracePeriodMonths] : undefined,
     event: card.event ? { ...card.event } : undefined,

@@ -4,7 +4,7 @@ import { TransactionModal } from './components/TransactionModal'
 import { UpdateBanner } from './components/UpdateBanner'
 import { useApp } from './store'
 import type { Tab } from './nav'
-import type { FixedExpense, Transaction } from './types'
+import type { FixedExpense, Transaction, TransactionDraft } from './types'
 import { HomePage } from './pages/HomePage'
 import { LedgerPage } from './pages/LedgerPage'
 
@@ -49,6 +49,7 @@ export default function App() {
     transaction?: Transaction
     fixedExpense?: FixedExpense
     candidates?: Transaction[]
+    draft?: TransactionDraft
   } | null>(null)
 
   useEffect(() => {
@@ -123,7 +124,9 @@ export default function App() {
               onLinkFixedExpense={handleLinkFixedExpense}
             />
           )}
-          {tab === 'cards' && <CardsPage />}
+          {tab === 'cards' && (
+            <CardsPage onQuickAdd={(draft) => setEditor({ draft })} />
+          )}
           {tab === 'report' && <ReportPage />}
           {tab === 'settings' && <SettingsPage />}
         </Suspense>
@@ -149,11 +152,12 @@ export default function App() {
           key={
             editor.transaction?.id ??
             editor.fixedExpense?.id ??
-            'new'
+            (editor.draft ? 'draft' : 'new')
           }
           initial={editor.transaction}
           fixedExpense={editor.fixedExpense}
           candidates={editor.candidates}
+          draft={editor.draft}
           month={month}
           onClose={() => setEditor(null)}
         />

@@ -1,7 +1,8 @@
 import { useState } from 'react'
+import { findPredefinedCard } from '../data/cards'
 import { SPENDING_CATEGORIES, categoryOf } from '../data/categories'
 import { useApp } from '../store'
-import type { Card, CategoryId, PerformanceTier } from '../types'
+import type { BenefitRule, Card, CategoryId, PerformanceTier } from '../types'
 import { Icon } from './Icon'
 import { Modal } from './ui'
 
@@ -25,7 +26,11 @@ function makeId(prefix: string): string {
 function cloneCard(card: Card): Card {
   return {
     ...card,
-    benefits: card.benefits.map((rule) => ({ ...rule })),
+    benefits: card.benefits.map((rule) => ({
+      ...rule,
+      merchants: rule.merchants ? [...rule.merchants] : undefined,
+      paymentMethods: rule.paymentMethods ? [...rule.paymentMethods] : undefined,
+    })),
     performanceTiers: card.performanceTiers?.map((tier) => ({ ...tier })) ?? [],
   }
 }
@@ -56,6 +61,14 @@ function toNumber(value: string): number {
 export function CardEditModal({ card, onClose }: { card?: Card; onClose: () => void }) {
   const { state, addCard, updateCard, deleteCard } = useApp()
   const [draft, setDraft] = useState<Card>(() => (card ? cloneCard(card) : createDraft()))
+  const [merchantInputs, setMerchantInputs] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      (card ? card.benefits : []).map((rule) => [
+        rule.id,
+        (rule.merchants ?? []).join(', '),
+      ]),
+    ),
+  )
   const [newCategory, setNewCategory] = useState<CategoryId>(
     SPENDING_CATEGORIES[0].id,
   )
@@ -71,7 +84,7 @@ export function CardEditModal({ card, onClose }: { card?: Card; onClose: () => v
 
   const patch = (changes: Partial<Card>) => setDraft((current) => ({ ...current, ...changes }))
 
-  const patchRule = (id: string, changes: Record<string, number>) => {
+  const patchRule = (id: string, changes: Partial<BenefitRule>) => {
     setDraft((current) => ({
       ...current,
       benefits: current.benefits.map((rule) =>
@@ -165,6 +178,11 @@ export function CardEditModal({ card, onClose }: { card?: Card; onClose: () => v
       (a, b) => a.minSpend - b.minSpend,
     )
 
+    const predefined = findPredefinedCard(draft.id)
+    const predefinedById = new Map(
+      (predefined?.benefits ?? []).map((rule) => [rule.id, rule]),
+    )
+
     const next: Card = {
       ...draft,
       name: draft.name.trim(),
@@ -174,12 +192,44 @@ export function CardEditModal({ card, onClose }: { card?: Card; onClose: () => v
       monthlyTotalCap: Math.max(0, Math.round(draft.monthlyTotalCap)),
       performanceTiers,
       baseCap: Math.max(0, Math.round(draft.baseCap)),
-      benefits: draft.benefits.map((rule) => ({
-        ...rule,
-        rate: Math.max(0, rule.rate),
-        monthlyCap: Math.max(0, Math.round(rule.monthlyCap)),
-        minSpend: rule.minSpend ? Math.max(0, Math.round(rule.minSpend)) : undefined,
-      })),
+      benefits: draft.benefits.map((rule) => {
+        const baseRule = predefinedById.get(rule.id)
+        const rawMerchants =
+          merchantInputs[rule.id] ?? (rule.merchants ?? []).join(', ')
+        const parsedMerchants = rawMerchants
+          .split(/[,·/]+/)
+          .map((item) => item.trim())
+          .filter(Boolean)
+        const merchants =
+          parsedMerchants.length > 0
+            ? parsedMerchants
+            : baseRule?.merchants?.length
+              ? []
+              : undefined
+        const maxBenefitPerTx =
+          rule.maxBenefitPerTx && rule.maxBenefitPerTx > 0
+            ? Math.round(rule.maxBenefitPerTx)
+            : baseRule?.maxBenefitPerTx
+              ? 0
+              : undefined
+        const minTransactionAmount =
+          rule.minTransactionAmount && rule.minTransactionAmount > 0
+            ? Math.round(rule.minTransactionAmount)
+            : undefined
+
+        return {
+          ...rule,
+          rate: Math.max(0, rule.rate),
+          monthlyCap: Math.max(0, Math.round(rule.monthlyCap)),
+          minSpend: rule.minSpend ? Math.max(0, Math.round(rule.minSpend)) : undefined,
+          minTransactionAmount,
+          maxBenefitPerTx,
+          fixedBenefit: rule.fixedBenefit,
+          maxCountPerMonth: rule.maxCountPerMonth,
+          merchants,
+          paymentMethods: rule.paymentMethods ? [...rule.paymentMethods] : undefined,
+        }
+      }),
     }
 
     if (card) {
@@ -472,46 +522,107 @@ export function CardEditModal({ card, onClose }: { card?: Card; onClose: () => v
                   <span aria-hidden="true" />
                 </div>
                 {draft.benefits.map((rule) => (
-                  <div className="rule-editor__row" key={rule.id}>
-                    <span className="rule-editor__name" title={rule.note || undefined}>
-                      {categoryOf(rule.categoryId).emoji} {categoryOf(rule.categoryId).label}
-                      {rule.minSpend ? (
-                        <small>{rule.minSpend.toLocaleString('ko-KR')}원 이상 실적</small>
-                      ) : null}
-                      {rule.minTransactionAmount ? (
-                        <small>
-                          건당 {rule.minTransactionAmount.toLocaleString('ko-KR')}원 이상
-                        </small>
-                      ) : null}
-                    </span>
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.5}
-                      value={Number((rule.rate * 100).toFixed(2))}
-                      onChange={(event) =>
-                        patchRule(rule.id, { rate: toNumber(event.target.value) / 100 })
-                      }
-                      aria-label={`${categoryOf(rule.categoryId).label} 적립률`}
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      step={1000}
-                      value={rule.monthlyCap}
-                      onChange={(event) =>
-                        patchRule(rule.id, { monthlyCap: toNumber(event.target.value) })
-                      }
-                      aria-label={`${categoryOf(rule.categoryId).label} 월 한도`}
-                    />
-                    <button
-                      type="button"
-                      className="rule-editor__remove"
-                      onClick={() => handleRemoveRule(rule.id)}
-                      aria-label={`${categoryOf(rule.categoryId).label} 혜택 삭제`}
-                    >
-                      <Icon name="close" size={14} />
-                    </button>
+                  <div className="rule-editor__item" key={rule.id}>
+                    <div className="rule-editor__row">
+                      <span className="rule-editor__name" title={rule.note || undefined}>
+                        {categoryOf(rule.categoryId).emoji} {categoryOf(rule.categoryId).label}
+                        {rule.minSpend ? (
+                          <small>{rule.minSpend.toLocaleString('ko-KR')}원 이상 실적</small>
+                        ) : null}
+                        {rule.fixedBenefit ? (
+                          <small>
+                            건당 {rule.fixedBenefit.toLocaleString('ko-KR')}원 정액
+                          </small>
+                        ) : null}
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        value={Number((rule.rate * 100).toFixed(2))}
+                        onChange={(event) =>
+                          patchRule(rule.id, { rate: toNumber(event.target.value) / 100 })
+                        }
+                        aria-label={`${categoryOf(rule.categoryId).label} 적립률`}
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        step={1000}
+                        value={rule.monthlyCap}
+                        onChange={(event) =>
+                          patchRule(rule.id, { monthlyCap: toNumber(event.target.value) })
+                        }
+                        aria-label={`${categoryOf(rule.categoryId).label} 월 한도`}
+                      />
+                      <button
+                        type="button"
+                        className="rule-editor__remove"
+                        onClick={() => handleRemoveRule(rule.id)}
+                        aria-label={`${categoryOf(rule.categoryId).label} 혜택 삭제`}
+                      >
+                        <Icon name="close" size={14} />
+                      </button>
+                    </div>
+                    <div className="rule-editor__subrow">
+                      <label className="rule-editor__subrow-field rule-editor__subrow-field--wide">
+                        <span>적용 가맹점 (선택)</span>
+                        <input
+                          type="text"
+                          value={merchantInputs[rule.id] ?? (rule.merchants ?? []).join(', ')}
+                          placeholder="전체 가맹점 (특정 브랜드면 쉼표로 입력)"
+                          onChange={(event) =>
+                            setMerchantInputs((current) => ({
+                              ...current,
+                              [rule.id]: event.target.value,
+                            }))
+                          }
+                          aria-label={`${categoryOf(rule.categoryId).label} 적용 가맹점`}
+                        />
+                      </label>
+                      <label className="rule-editor__subrow-field">
+                        <span>건당 최대 한도(원)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={500}
+                          value={
+                            rule.maxBenefitPerTx && rule.maxBenefitPerTx > 0
+                              ? rule.maxBenefitPerTx
+                              : ''
+                          }
+                          placeholder="한도 없음"
+                          onChange={(event) => {
+                            const raw = event.target.value.trim()
+                            patchRule(rule.id, {
+                              maxBenefitPerTx: raw === '' ? undefined : toNumber(raw),
+                            })
+                          }}
+                          aria-label={`${categoryOf(rule.categoryId).label} 건당 최대 할인 한도`}
+                        />
+                      </label>
+                      <label className="rule-editor__subrow-field">
+                        <span>건당 최소 결제(원)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={5000}
+                          value={
+                            rule.minTransactionAmount && rule.minTransactionAmount > 0
+                              ? rule.minTransactionAmount
+                              : ''
+                          }
+                          placeholder="제한 없음"
+                          onChange={(event) => {
+                            const raw = event.target.value.trim()
+                            patchRule(rule.id, {
+                              minTransactionAmount: raw === '' ? undefined : toNumber(raw),
+                            })
+                          }}
+                          aria-label={`${categoryOf(rule.categoryId).label} 건당 최소 결제 금액`}
+                        />
+                      </label>
+                    </div>
                   </div>
                 ))}
               </>
